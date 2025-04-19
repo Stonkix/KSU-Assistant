@@ -1,0 +1,33 @@
+{% extends 'main/layout.html' %}
+
+{% block title %} Изменение {% endblock %}
+
+{% block content %}
+    <p>Изменение</p>
+    {% if table %}
+        <div class="table-container">
+            <table>
+              {{ table }}
+            </table>
+        </div>
+    {% endif %}
+{% endblock %}
+
+{% block form %}
+    {% if form %}
+        <form class="form-container" method="post">
+            <p class="form-header">Изменить</p>
+            <div class="form-fields">
+                {% csrf_token %}
+                {{ form }}
+            </div>
+            <button class="form-button" type="submit">Изменить</button>
+        </form>
+    {% else %}
+        <p>Выберите запись для изменения</p>
+    {% endif %}
+{% endblock %}
+
+{% block tablelist %}
+    {{ tablelistGen }}
+{% endblock%}

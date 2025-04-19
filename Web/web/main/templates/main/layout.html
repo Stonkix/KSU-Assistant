@@ -1,0 +1,65 @@
+{% load static %}
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport"
+          content="width=device-width, user-scalable=no, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <link rel="stylesheet" href="{% static 'main/css/style.css' %}"  type="text/css">
+    <title>{% block title %}{% endblock%}</title>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="header-title">Работаем, Насяника</div>
+            <div class="tabs">
+                <a href="../main/view"><button>Просмотр</button></a>
+                <a href="../main/change"><button>Изменение</button></a>
+                <a href="../main/add"><button>Добавление</button></a>
+                <a href="../main/delete"><button>Удаление</button></a>
+            </div>
+        </header>
+
+        <div class="sidebar">
+            <div class="sidebar-title">Список таблиц</div>
+            <ul class="sidebar-list">
+<!--                <li>Таблица 1</li>-->
+<!--                <li>Таблица 2</li>-->
+<!--                <li>Таблица ...</li>-->
+                {% block tablelist %}
+                {% endblock %}
+            </ul>
+        </div>
+
+        <div class="content">
+            {% block content %}
+            {% endblock%}
+
+            {% block form %}
+            {% endblock%}
+        </div>
+    </div>
+</body>
+<script>
+    const rows = document.querySelectorAll('table tbody tr');
+
+    // Добавляем обработчик события "клик" на каждую строку
+    rows.forEach(row => {
+        row.addEventListener('click', function () {
+            // Получаем ID строки из атрибута data-id
+            const rowId = this.getAttribute('id');
+            console.log(rowId);
+
+            if (rowId != null){
+                // Добавляем ID в текущий GET-запрос
+                const currentUrl = new URL(window.location.href);
+                currentUrl.searchParams.set('id', rowId);
+
+                // Перенаправляем пользователя на обновлённый URL
+                window.location.href = currentUrl.toString();
+            };
+        });
+    });
+</script>
+</html>
