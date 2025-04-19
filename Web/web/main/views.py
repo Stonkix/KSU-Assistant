@@ -5,8 +5,23 @@ from django.db import connection
 from django.utils.safestring import mark_safe
 from urllib.parse import urlencode
 
+primary_keys = [
+    'id',
+    'user_id',
+    'pair_number',
+]
+
 dictTables = {
-    'tableeventsevents': ''
+    'users': '',
+    'students': '',
+    'teachers': '',
+    'event_participants': '',
+    'events': '',
+    'academic_groups': '',
+    'lessons': '',
+    'rooms': '',
+    'pair_times': '',
+    'subjects': '',
     # 'apartments': 'Жильё',
     # 'gastarbiters': 'Гастарбайтеры',
     # 'Gas_Tools': 'Гастарбайтеры-инструменты',
@@ -16,33 +31,43 @@ dictTables = {
 }
 
 dictLabels = {
-    'f_name': 'Фамилия',
-    'i_name': 'Имя',
-    'o_name': 'Отчество',
-    'pasport_ser': 'Серия паспорта',
-    'pasport_num': 'Номер серии',
-    'salary': 'Зарплата',
-    'id_workplace': 'id рабочего места',
-    'id_apartment': 'id квартиры проживания',
-    'adress': 'Адрес',
-    'num_of_rooms': 'Количество комнат',
-    'id_owner': 'id владельца',
-    'id_gas': 'id гастарбайтера',
-    'id_tool': 'id инструмента',
-    'phone_num': 'Номер телефона',
-    'email': 'Электронная почта',
-    'tooltype': 'Тип инструмента',
-    'disrepair': 'Состояние',
-    'worktype': 'Задание',
-    'employer': 'Наниматель',
+    # 'f_name': 'Фамилия',
+    # 'i_name': 'Имя',
+    # 'o_name': 'Отчество',
+    # 'pasport_ser': 'Серия паспорта',
+    # 'pasport_num': 'Номер серии',
+    # 'salary': 'Зарплата',
+    # 'id_workplace': 'id рабочего места',
+    # 'id_apartment': 'id квартиры проживания',
+    # 'adress': 'Адрес',
+    # 'num_of_rooms': 'Количество комнат',
+    # 'id_owner': 'id владельца',
+    # 'id_gas': 'id гастарбайтера',
+    # 'id_tool': 'id инструмента',
+    # 'phone_num': 'Номер телефона',
+    # 'email': 'Электронная почта',
+    # 'tooltype': 'Тип инструмента',
+    # 'disrepair': 'Состояние',
+    # 'worktype': 'Задание',
+    # 'employer': 'Наниматель',
 }
 
 
-class SimpleForm(forms.Form):
-    name = forms.CharField(label='Имя', max_length=100)
-    age = forms.IntegerField(label='Возраст', min_value=0)
-    email = forms.EmailField(label='Электронная почта')
-    birth_date = forms.DateField(label='Дата рождения', widget=forms.DateInput(attrs={'type': 'date'}))
+# class SimpleForm(forms.Form):
+#     name = forms.CharField(label='Имя', max_length=100)
+#     age = forms.IntegerField(label='Возраст', min_value=0)
+#     email = forms.EmailField(label='Электронная почта')
+#     birth_date = forms.DateField(label='Дата рождения', widget=forms.DateInput(attrs={'type': 'date'}))
+
+
+def GETPrimaryKeyName(table_name):
+    with connection.cursor() as cursor:
+        # (cid, name, type, notnull, dflt_value, pk)
+        query = f"PRAGMA table_info({table_name});"
+        cursor.execute(query)
+        columns = cursor.fetchall()
+        primaryKeyName = columns[0][1]
+    return primaryKeyName
 
 
 def GETTable(request):
@@ -74,17 +99,20 @@ def generateTableList():
 def generateForm(table_name):
     form = ""
     with connection.cursor() as cursor:
-        query = f"""
-        SELECT COLUMN_NAME, DATA_TYPE, CHARACTER_MAXIMUM_LENGTH
-        FROM INFORMATION_SCHEMA.COLUMNS
-        WHERE TABLE_NAME = '{table_name}'
-        """
+        # (cid, name, type, notnull, dflt_value, pk)
+        # query = f"""
+        # SELECT COLUMN_NAME, DATA_TYPE, CHARACTER_MAXIMUM_LENGTH
+        # FROM INFORMATION_SCHEMA.COLUMNS
+        # WHERE TABLE_NAME = '{table_name}'
+        # """
+        query = f"PRAGMA table_info({table_name});"
         cursor.execute(query)
         columns = cursor.fetchall()
 
     form += f'<input type=\"hidden\" name=\"table\" value=\"{table_name}\">'
 
-    for key, type, length in columns:
+    for column in columns:
+        key = column[1]
         if key == 'id':
             continue
         if key in dictLabels:
@@ -93,27 +121,30 @@ def generateForm(table_name):
             title = key
         column = f'''
             <p><label for=\"{key}\">{title}</label>
-            <input type=\"text\" name=\"{key}\" maxlength=\"{length}\"></p>
+            <input type=\"text\" name=\"{key}\"></p>
         '''
         form += column
     return mark_safe(form)
 
 
 def generateFilledForm(table_name, id):
+    primaryKeyName = GETPrimaryKeyName(table_name)
     form = ""
     with connection.cursor() as cursor:
-        query = f"""
-        SELECT COLUMN_NAME, DATA_TYPE, CHARACTER_MAXIMUM_LENGTH
-        FROM INFORMATION_SCHEMA.COLUMNS
-        WHERE TABLE_NAME = '{table_name}'
-        """
+        # (cid, name, type, notnull, dflt_value, pk)
+        # query = f"""
+        # SELECT COLUMN_NAME, DATA_TYPE, CHARACTER_MAXIMUM_LENGTH
+        # FROM INFORMATION_SCHEMA.COLUMNS
+        # WHERE TABLE_NAME = '{table_name}'
+        # """
+        query = f"PRAGMA table_info({table_name});"
         cursor.execute(query)
         columns = cursor.fetchall()
 
         query = f"""
         SELECT *
         FROM {table_name}
-        WHERE id = {id}
+        WHERE {primaryKeyName} = {id}
         """
         cursor.execute(query)
         row = cursor.fetchall()
@@ -124,9 +155,9 @@ def generateFilledForm(table_name, id):
     form += f'<input type=\"hidden\" name=\"id\" value=\"{id}\">'
 
     for i in range(len(columns)): # key, type, length
-        key = columns[i][0]
-        type = columns[i][1]
-        length = columns[i][2]
+        key = columns[i][1]
+        # type = columns[i][2]
+        # length = columns[i][2]
         value = row[0][i]
 
         if key == 'id':
@@ -141,35 +172,34 @@ def generateFilledForm(table_name, id):
 
         column = f'''
             <p><label for=\"{key}\">{title}</label>
-            <input type=\"text\" name=\"{key}\" maxlength=\"{length}\" value=\"{value}\"></p>
+            <input type=\"text\" name=\"{key}\" value=\"{value}\"></p>
         '''
         form += column
     return mark_safe(form)
 
 
 def generateFormToDelete(table_name, id):
+    primaryKeyName = GETPrimaryKeyName(table_name)
+
     form = ''
 
     form += f'<input type=\"hidden\" name=\"table\" value=\"{table_name}\">'
-    form += f'<input type=\"hidden\" name=\"id\" value=\"{id}\">'
+    form += f'<input type=\"hidden\" name=\"{primaryKeyName}\" value=\"{id}\">'
 
-    form += f'<p>Точно удалить из таблицы {dictTables[table_name]} запись с id {id}?</p>'
+    form += f'<p>Точно удалить из таблицы {dictTables[table_name]} запись с {primaryKeyName} {id}?</p>'
     return form
 
 
 def generateHTMLTable(table_name):
     table = ""
     with connection.cursor() as cursor:
-        query = f"""
-            SELECT COLUMN_NAME
-            FROM INFORMATION_SCHEMA.COLUMNS
-            WHERE TABLE_NAME = '{table_name}'
-            """
+        # (cid, name, type, notnull, dflt_value, pk)
+        query = f"PRAGMA table_info({table_name});"
         cursor.execute(query)
         columns = cursor.fetchall()
     table = '<tr>'
     for column in columns:
-        table += f'<td>{column[0]}</td>'
+        table += f'<td>{column[1]}</td>'
     table += '</tr>'
     print(table)
     with connection.cursor() as cursor:
@@ -253,12 +283,14 @@ def changePage(request):
     elif request.method == "POST":
         keys = []
         values = []
+        primaryKeyName = ''
         for key, value in request.POST.items():
             if key == 'table':
                 table = value
                 continue
-            if key == 'id':
+            if key in primary_keys:
                 id = value
+                primaryKeyName = key
                 continue
 
             if key == 'csrfmiddlewaretoken':
@@ -274,7 +306,7 @@ def changePage(request):
             lstValues = []
             for i in range(len(keys)):
                 lstValues.append(f'{keys[i]} = {values[i]}')
-            query = f'UPDATE {table} SET {", ".join(lstValues)}  WHERE id = {id}'
+            query = f'UPDATE {table} SET {", ".join(lstValues)}  WHERE {primaryKeyName} = {id}'
             print(query)
             cursor.execute(query)
 
@@ -348,19 +380,21 @@ def deletePage(request):
     elif request.method == "POST":
         id = ''
         table = ''
+        primaryKeyName = ''
         for key, value in request.POST.items():
             if key == 'table':
                 table = value
                 continue
-            if key == 'id':
+            if key in primary_keys:
                 id = value
+                primaryKeyName = key
                 continue
             if key == 'csrfmiddlewaretoken':
                 continue
         if id != '':
             print(f'delete {table} {id}')
             with connection.cursor() as cursor:
-                query = f'DELETE FROM {table} WHERE id = {id}'
+                query = f'DELETE FROM {table} WHERE {primaryKeyName} = {id}'
                 print(query)
                 cursor.execute(query)
 
