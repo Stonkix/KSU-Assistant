@@ -6,6 +6,7 @@ from django.utils.safestring import mark_safe
 from urllib.parse import urlencode
 
 dictTables = {
+    'tableeventsevents': ''
     # 'apartments': 'Жильё',
     # 'gastarbiters': 'Гастарбайтеры',
     # 'Gas_Tools': 'Гастарбайтеры-инструменты',
