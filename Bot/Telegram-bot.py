@@ -10,19 +10,36 @@ DATABASE_PATH = os.path.join(dbDir, "university.db")
 botToken = '7637461107:AAFH6C5oy9WZIuQhZfkmH6YUbVNseduRA90'
 DATABASE_NAME = 'university.db'
 
-bot = telebot.TeleBot(botToken) # Наш бот находится по тегу @tksu_bot
-user_states = {} # Словарь для хранения временных данных пользователей во время авторизации
+bot = telebot.TeleBot(botToken)  # Наш бот находится по тегу @tksu_bot
+user_states = {}  # Словарь для хранения временных данных пользователей во время авторизации
 
 def getDBConnection():
     conn = sqlite3.connect(DATABASE_PATH)
     conn.row_factory = sqlite3.Row
     return conn
 
-@bot.message_handler(commands = ['start', 'login'])
+# Приветствие с кнопкой
+@bot.message_handler(commands=['start'])
 def handleStart(message):
     chat_id = message.chat.id
     user_states.pop(chat_id, None)
-    bot.send_message(chat_id, 'Для входа введите корпоративную почту (например, @studklg.ru или @tksu.ru):')
+
+    markup = types.InlineKeyboardMarkup()
+    login_button = types.InlineKeyboardButton(text="🔐 Авторизоваться", callback_data="start_login")
+    markup.add(login_button)
+
+    bot.send_message(
+        chat_id,
+        "👋 Привет! Я твой ассистент в KSU.\n\nДля использования всех функций, пожалуйста, авторизуйся.",
+        reply_markup=markup
+    )
+
+# Обработка нажатия на кнопку "Авторизоваться"
+@bot.callback_query_handler(func=lambda call: call.data == "start_login")
+def start_login_callback(call):
+    chat_id = call.message.chat.id
+    bot.answer_callback_query(call.id)
+    bot.send_message(chat_id, 'Введите вашу корпоративную почту (например, @studklg.ru или @tksu.ru):')
     user_states[chat_id] = {'state': 'WAIT_EMAIL'}
 
 # Обработка ввода почты
@@ -30,6 +47,7 @@ def handleStart(message):
 def handle_email(message):
     chat_id = message.chat.id
     email = message.text.strip()
+
     # Проверяем домен
     if not (email.endswith('@studklg.ru') or email.endswith('@tksu.ru')):
         bot.send_message(chat_id, 'Неподдерживаемый домен почты. Используйте @studklg.ru или @tksu.ru.')
@@ -37,7 +55,7 @@ def handle_email(message):
 
     conn = getDBConnection()
     cursor = conn.cursor()
-    cursor.execute('SELECT * FROM users WHERE email = ?', (email,))
+    cursor.execute('SELECT * FROM users WHERE LOWER(email) = ?', (email.lower(),))
     user = cursor.fetchone()
     conn.close()
 
@@ -45,7 +63,7 @@ def handle_email(message):
         bot.send_message(chat_id, 'Пользователь с такой почтой не найден. Обратитесь к администратору.')
         return
 
-# Проверяем, не привязан ли уже
+    # Проверяем, не привязан ли уже
     if user['telegram_id'] is not None:
         if str(user['telegram_id']) == str(chat_id):
             bot.send_message(chat_id, 'Вы уже авторизованы.')
@@ -67,8 +85,14 @@ def handle_password(message):
 
     conn = getDBConnection()
     cursor = conn.cursor()
-    cursor.execute('SELECT * FROM users WHERE email = ?', (email,))
+    cursor.execute('SELECT * FROM users WHERE LOWER(email) = ?', (email.lower(),))
     user = cursor.fetchone()
+
+    if not user:
+        bot.send_message(chat_id, 'Ошибка авторизации. Попробуйте сначала /start')
+        conn.close()
+        user_states.pop(chat_id, None)
+        return
 
     if not verifyPassword(user['password_hash'], password):
         bot.send_message(chat_id, 'Неверный пароль. Попробуйте еще раз.')
@@ -81,11 +105,7 @@ def handle_password(message):
     conn.close()
 
     role = user['role']
-    bot.send_message(chat_id, f'Успешно авторизованы как {role}.')
+    bot.send_message(chat_id, f'✅ Успешно авторизованы как {role}.')
     user_states.pop(chat_id, None)
 
-
-
 bot.infinity_polling()
-
-
