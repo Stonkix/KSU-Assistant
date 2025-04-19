@@ -4,6 +4,12 @@ import sqlite3
 conn = sqlite3.connect('university.db')
 cursor = conn.cursor()
 
+# Обновление всех записей, чтобы очистить telegram_id
+cursor.execute("""
+UPDATE users
+SET telegram_id = NULL
+""")
+
 # Добавление пользователя
 user_data = (
     'EvchukAS@studklg.ru',
