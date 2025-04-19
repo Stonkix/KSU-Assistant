@@ -10,8 +10,8 @@ DATABASE_PATH = os.path.join(dbDir, "university.db")
 botToken = '7637461107:AAFH6C5oy9WZIuQhZfkmH6YUbVNseduRA90'
 DATABASE_NAME = 'university.db'
 
-bot = telebot.TeleBot(botToken)  # Наш бот находится по тегу @tksu_bot
-user_states = {}  # Словарь для хранения временных данных пользователей во время авторизации
+bot = telebot.TeleBot(botToken)
+user_states = {}
 
 def getDBConnection():
     conn = sqlite3.connect(DATABASE_PATH)
@@ -34,7 +34,6 @@ def handleStart(message):
         reply_markup=markup
     )
 
-# Обработка нажатия на кнопку "Авторизоваться"
 @bot.callback_query_handler(func=lambda call: call.data == "start_login")
 def start_login_callback(call):
     chat_id = call.message.chat.id
@@ -42,20 +41,19 @@ def start_login_callback(call):
     bot.send_message(chat_id, 'Введите вашу корпоративную почту (например, @studklg.ru или @tksu.ru):')
     user_states[chat_id] = {'state': 'WAIT_EMAIL'}
 
-# Обработка ввода почты
+# Ввод почты
 @bot.message_handler(func=lambda m: user_states.get(m.chat.id, {}).get('state') == 'WAIT_EMAIL')
 def handle_email(message):
     chat_id = message.chat.id
     email = message.text.strip()
 
-    # Проверяем домен
     if not (email.endswith('@studklg.ru') or email.endswith('@tksu.ru')):
         bot.send_message(chat_id, 'Неподдерживаемый домен почты. Используйте @studklg.ru или @tksu.ru.')
         return
 
     conn = getDBConnection()
     cursor = conn.cursor()
-    cursor.execute('SELECT * FROM users WHERE LOWER(email) = ?', (email.lower(),))
+    cursor.execute('SELECT * FROM users WHERE email = ?', (email,))
     user = cursor.fetchone()
     conn.close()
 
@@ -63,7 +61,6 @@ def handle_email(message):
         bot.send_message(chat_id, 'Пользователь с такой почтой не найден. Обратитесь к администратору.')
         return
 
-    # Проверяем, не привязан ли уже
     if user['telegram_id'] is not None:
         if str(user['telegram_id']) == str(chat_id):
             bot.send_message(chat_id, 'Вы уже авторизованы.')
@@ -72,11 +69,10 @@ def handle_email(message):
         user_states.pop(chat_id, None)
         return
 
-    # Все ок, просим пароль
     user_states[chat_id] = {'state': 'WAIT_PASSWORD', 'email': email}
     bot.send_message(chat_id, 'Введите пароль:')
 
-# Обработка ввода пароля
+# Ввод пароля
 @bot.message_handler(func=lambda m: user_states.get(m.chat.id, {}).get('state') == 'WAIT_PASSWORD')
 def handle_password(message):
     chat_id = message.chat.id
@@ -85,7 +81,7 @@ def handle_password(message):
 
     conn = getDBConnection()
     cursor = conn.cursor()
-    cursor.execute('SELECT * FROM users WHERE LOWER(email) = ?', (email.lower(),))
+    cursor.execute('SELECT * FROM users WHERE email = ?', (email,))
     user = cursor.fetchone()
 
     if not user:
