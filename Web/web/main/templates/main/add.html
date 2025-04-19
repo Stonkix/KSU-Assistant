@@ -1,0 +1,26 @@
+{% extends 'main/layout.html' %}
+
+{% block title %} Добавление {% endblock %}
+
+{% block content %}
+    <p>Добавление</p>
+{% endblock %}
+
+{% block form %}
+    {% if form %}
+        <form class="form-container" method="post">
+            <p class="form-header">Добавить</p>
+            <div class="form-fields">
+                {% csrf_token %}
+                {{ form }}
+            </div>
+            <button class="form-button" type="submit">Добавить</button>
+        </form>
+    {% else %}
+        <p>Выберите таблицу для добавления</p>
+    {% endif %}
+{% endblock %}
+
+{% block tablelist %}
+    {{ tablelistGen }}
+{% endblock%}

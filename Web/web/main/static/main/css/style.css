@@ -1,0 +1,197 @@
+body {
+    font-family: Arial, sans-serif;
+    margin: 0;
+    background-color: #f5f5f5;
+    height: 100vh; /* Полная высота окна браузера */
+    overflow: hidden; /* Убираем прокрутку страницы */
+}
+
+.container {
+    display: grid;
+    grid-template-columns: 250px 1fr; /* Боковая панель и основная часть */
+    grid-template-rows: 60px 1fr;    /* Шапка и содержимое */
+    height: 100vh;
+    grid-template-areas:
+        "header header"
+        "sidebar content";
+
+}
+
+header {
+    grid-area: header;
+    background-color: #dce3d5;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 15px;
+    border-bottom: 1px solid #ccc;
+}
+
+.header-title {
+    font-weight: bold;
+}
+
+.tabs button {
+    background-color: #dce3d5;
+    border: 1px solid #ccc;
+    margin-left: 5px;
+    padding: 5px 10px;
+    cursor: pointer;
+    font-size: 14px;
+}
+
+.tabs button:hover {
+    background-color: #c5ceb8;
+}
+
+.sidebar {
+    grid-area: sidebar;
+    background-color: #e4e9d4;
+    padding: 15px;
+    border-right: 1px solid #ccc;
+}
+
+.sidebar-title {
+    font-weight: bold;
+    margin-bottom: 10px;
+}
+
+.sidebar-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.sidebar-list li button {
+    background-color: #d3d8c2;
+    margin: 5px 0;
+    padding: 10px;
+    cursor: pointer;
+    text-align: center;
+    border: 1px solid #bbb;
+    width: 100%;
+    font-size: 16px;
+}
+
+.sidebar-list li button:hover {
+    background-color: #c5ceb8;
+}
+
+.content {
+    grid-area: content;
+    background-color: #fff;
+    padding: 20px;
+    overflow-y: auto;
+}
+
+
+/* Контейнер формы */
+.form-container {
+    background-color: #e4e9d4; /* Цвет, как на картинке */
+    border: 1px solid #ccc; /* Граница для формы */
+    width: 300px; /* Ширина формы */
+    padding: 15px;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    overflow: hidden; /* Для фиксации заголовка и кнопки */
+}
+
+/* Заголовок */
+.form-header {
+    font-weight: bold;
+    text-align: center;
+    margin-bottom: 10px;
+    position: sticky; /* Фиксация заголовка */
+    top: 0;
+    background-color: #e4e9d4;
+    z-index: 10;
+}
+
+/* Прокручиваемая область */
+.form-fields {
+    flex-grow: 1;
+    overflow-y: auto; /* Прокрутка для полей */
+    max-height: 200px; /* Ограничение высоты */
+    margin-bottom: 10px;
+}
+
+/* Поля ввода */
+.form-fields p {
+    display: flex;
+    flex-direction: column;
+    margin: 10px 0;
+}
+
+.form-fields label {
+    margin-bottom: 5px;
+    font-size: 14px;
+}
+
+.form-fields input[type="text"] {
+    padding: 5px;
+    font-size: 14px;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+}
+
+/* Кнопка */
+.form-button {
+    margin-top: 10px;
+    padding: 10px;
+    font-size: 16px;
+    background-color: #dce3d5;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    cursor: pointer;
+    text-align: center;
+}
+
+.form-button:hover {
+    background-color: #c5ceb8;
+}
+
+/* Контейнер для таблицы */
+.table-container {
+    width: 100%; /* Таблица занимает всю ширину контейнера */
+    overflow: auto; /* Включаем горизонтальный и вертикальный скролл */
+    max-height: 500px; /* Ограничиваем высоту таблицы */
+    border: 1px solid #ddd; /* Граница вокруг таблицы */
+    position: relative;
+    margin-bottom: 10px;
+}
+
+/* Стили для таблицы */
+table {
+    border-collapse: collapse; /* Убираем двойные границы между ячейками */
+    width: 100%; /* Таблица занимает всю ширину контейнера */
+    font-family: Arial, sans-serif; /* Шрифт таблицы */
+    font-size: 14px; /* Размер текста */
+    text-align: left; /* Текст в ячейках выравнивается по левому краю */
+/*    height: 120px;*/
+}
+
+/* Стили для строки заголовка */
+table tr:first-child {
+    position: sticky; /* Фиксируем строку заголовка */
+    top: 0; /* Фиксируем сверху */
+    background-color: #4CAF50; /* Зелёный фон для заголовка */
+    color: white; /* Белый текст */
+    z-index: 1; /* Чтобы заголовок перекрывал строки при прокрутке */
+}
+
+/* Стили для ячеек таблицы */
+table th, table td {
+    border: 1px solid #ddd; /* Границы ячеек */
+    padding: 10px; /* Внутренний отступ */
+    word-wrap: break-word; /* Перенос длинного текста */
+}
+
+/* Стили для строк таблицы */
+table tr:nth-child(even) {
+    background-color: #f2f2f2; /* Светло-серый фон для чётных строк */
+}
+
+table tr:hover {
+    background-color: #ddd; /* Серый фон при наведении мыши на строку */
+}
