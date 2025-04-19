@@ -5,7 +5,7 @@ import os
 from telebot import types
 from Utils.Utils import hashPassword, verifyPassword
 
-dbDir = "C:/Users/alexa/Desktop/KSU-Assistant/Utils"
+dbDir = "C:/Users/alexa/Desktop/KSU-Assistant/Utils" #Путь к директории с базой данных
 DATABASE_PATH = os.path.join(dbDir, "university.db")
 botToken = '7637461107:AAFH6C5oy9WZIuQhZfkmH6YUbVNseduRA90'
 DATABASE_NAME = 'university.db'
