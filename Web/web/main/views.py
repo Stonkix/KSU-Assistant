@@ -5,6 +5,14 @@ from django.db import connection
 from django.utils.safestring import mark_safe
 from urllib.parse import urlencode
 
+import sys
+from pathlib import Path
+
+sys.path.append(str(Path(__file__).resolve().parents[3] / 'Utils'))
+
+import Utils
+
+
 primary_keys = [
     'id',
     'user_id',
@@ -223,7 +231,6 @@ def generateFormForNewStudent():
 
     form = ''
     form += f'<input type=\"hidden\" name=\"role\" value=\"student\">'
-    form += f'<input type=\"hidden\" name=\"role\" value=\"student\">'
 
     for columnName in dictColumns:
         column = f'''
@@ -242,7 +249,22 @@ def generateFormForNewStudent():
 
 
 def generateFormForNewTeacher():
+    dictColumns = {
+        'email': 'Почта',
+        'password': 'Пароль',
+        'full_name': 'Полное ФИО',
+        'department': 'Интститут',
+    }
+
     form = ''
+    form += f'<input type=\"hidden\" name=\"role\" value=\"teacher\">'
+
+    for columnName in dictColumns:
+        column = f'''
+                    <p><label for=\"{columnName}\">{dictColumns[columnName]}</label>
+                    <input type=\"text\" name=\"{columnName}\"></p>
+                '''
+        form += column
     return form
 
 
@@ -326,19 +348,51 @@ def newUserPage(request):
                 form = generateFormForNewTeacher()
 
     elif request.method == "POST":
-        keys = []
-        values = []
+        keys2Users = []
+        values2Users = []
+        keys2Role = []
+        values2Role = []
         for key, value in request.POST.items():
             print(f'POST {key, value}')
             if key == 'csrfmiddlewaretoken':
                 continue
-            if key == 'password':
-                keys.append('password_hash')
+            elif key == 'password':
+                keys2Users.append('password_hash')
+                value = Utils.hashPassword(value)
+                values2Users.append(f"\'{value}\'")
+            elif key != 'full_name' and key != 'group_id' and key != 'department':
+                keys2Users.append(key)
+                values2Users.append(f"\'{value}\'")
+            else:
+                keys2Role.append(key)
+                values2Role.append(f"\'{value}\'")
+        print(keys2Users)
+        print(values2Users)
 
-        # with connection.cursor() as cursor:
-        #     query = f'INSERT INTO users ({", ".join(keys)}) VALUES ({", ".join(values)})'
-        #     print(query)
-        #     cursor.execute(query)
+        with connection.cursor() as cursor:
+            query = f'INSERT INTO users ({", ".join(keys2Users)}) VALUES ({", ".join(values2Users)}) RETURNING id'
+            print(query)
+            cursor.execute(query)
+            new_user_id = cursor.fetchone()[0]
+        keys2Role.append('user_id')
+        values2Role.append(f"\'{new_user_id}\'")
+
+        if values2Users[0] == "\'student\'":
+            print('student')
+            print(keys2Role)
+            print(values2Role)
+            with connection.cursor() as cursor:
+                query = f'INSERT INTO students ({", ".join(keys2Role)}) VALUES ({", ".join(values2Role)})'
+                print(query)
+                cursor.execute(query)
+        else:
+            print('teacher')
+            print(keys2Role)
+            print(values2Role)
+            with connection.cursor() as cursor:
+                query = f'INSERT INTO teachers ({", ".join(keys2Role)}) VALUES ({", ".join(values2Role)})'
+                print(query)
+                cursor.execute(query)
 
     userTypesList = generateUserTypesList()
     renderPage = render(request, 'main/add user.html', {'tablelistGen': mark_safe(userTypesList), 'form': mark_safe(form)})
