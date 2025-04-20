@@ -171,7 +171,7 @@ def fetch_schedule(user_id, mode='today'):
     today_str = today.strftime('%Y-%m-%d')
 
     if mode == 'today':
-        cursor.execute("""
+        cursor.execute(""" 
             SELECT lessons.weekday, lessons.pair_number, pair_times.start_time, pair_times.end_time,
                    subjects.name AS subject_name, rooms.room_number, rooms.building
             FROM lessons
@@ -235,7 +235,13 @@ def toggle_silent_mode(message):
         cursor.execute("UPDATE users SET silent_mode = ? WHERE telegram_id = ?", (new_mode, chat_id))
         conn.commit()
 
+        # Сообщение о состоянии тихого режима
+        mode_text = "Тихий режим включен." if new_mode == 1 else "Тихий режим выключен."
+        bot.send_message(chat_id, mode_text)
+
     conn.close()
     send_main_menu(chat_id)
 
 bot.infinity_polling()
+
+
