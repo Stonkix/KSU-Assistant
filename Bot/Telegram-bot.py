@@ -28,7 +28,7 @@ def send_main_menu(chat_id):
     silent_text = "🔕 Включить" if not silent_mode else "🔔 Выключить"
 
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    schedule_btn = types.KeyboardButton("📅 Получить расписание")
+    schedule_btn = types.KeyboardButton("📅 Расписание")
     events_btn = types.KeyboardButton("📋 Мероприятия")
     silent_btn = types.KeyboardButton(silent_text)
     markup.add(schedule_btn, events_btn, silent_btn)
@@ -122,7 +122,7 @@ def handle_password(message):
     send_main_menu(chat_id)
 
 # Обработчик кнопки "Получить расписание"
-@bot.message_handler(func=lambda m: m.text == "📅 Получить расписание")
+@bot.message_handler(func=lambda m: m.text == "📅 Расписание")
 def show_schedule_options(message):
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     today_btn = types.KeyboardButton("📆 Сегодня")
