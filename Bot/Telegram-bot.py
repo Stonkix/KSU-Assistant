@@ -1,8 +1,8 @@
 import telebot
 import sqlite3
 import os
-from datetime import datetime, timedelta
 from telebot import types
+from datetime import datetime, timedelta
 from Utils.Utils import verifyPassword
 
 dbDir = "C:/Users/alexa/Desktop/KSU-Assistant-after-venv/Utils"
@@ -11,10 +11,12 @@ botToken = '7637461107:AAFH6C5oy9WZIuQhZfkmH6YUbVNseduRA90'
 bot = telebot.TeleBot(botToken)
 user_states = {}
 
+
 def getDBConnection():
     conn = sqlite3.connect(DATABASE_PATH)
     conn.row_factory = sqlite3.Row
     return conn
+
 
 # Функция для отображения главного меню
 def send_main_menu(chat_id):
@@ -33,6 +35,7 @@ def send_main_menu(chat_id):
     silent_btn = types.KeyboardButton(silent_text)
     markup.add(schedule_btn, events_btn, silent_btn)
     bot.send_message(chat_id, "Выберите действие:", reply_markup=markup)
+
 
 # /start
 @bot.message_handler(commands=['start'])
@@ -59,12 +62,14 @@ def handleStart(message):
             reply_markup=markup
         )
 
+
 @bot.callback_query_handler(func=lambda call: call.data == "start_login")
 def start_login_callback(call):
     chat_id = call.message.chat.id
     bot.answer_callback_query(call.id)
     bot.send_message(chat_id, 'Введите вашу корпоративную почту (например, @studklg.ru или @tksu.ru):')
     user_states[chat_id] = {'state': 'WAIT_EMAIL'}
+
 
 @bot.message_handler(func=lambda m: user_states.get(m.chat.id, {}).get('state') == 'WAIT_EMAIL')
 def handle_email(message):
@@ -96,6 +101,7 @@ def handle_email(message):
     user_states[chat_id] = {'state': 'WAIT_PASSWORD', 'email': email}
     bot.send_message(chat_id, 'Введите пароль:')
 
+
 @bot.message_handler(func=lambda m: user_states.get(m.chat.id, {}).get('state') == 'WAIT_PASSWORD')
 def handle_password(message):
     chat_id = message.chat.id
@@ -121,39 +127,46 @@ def handle_password(message):
     user_states.pop(chat_id, None)
     send_main_menu(chat_id)
 
-# Обработчик кнопки "Получить расписание"
-@bot.message_handler(func=lambda m: m.text == "📅 Расписание")
-def show_schedule_options(message):
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    today_btn = types.KeyboardButton("📆 Сегодня")
-    week_btn = types.KeyboardButton("🗓️ На неделю")
-    back_btn = types.KeyboardButton("🔙 Назад")
-    markup.add(today_btn, week_btn, back_btn)
-    bot.send_message(message.chat.id, "Выберите, за какой период показать расписание:", reply_markup=markup)
 
-@bot.message_handler(func=lambda m: m.text == "🔙 Назад")
-def handle_back(message):
-    send_main_menu(message.chat.id)
-
-# Показ расписания
-@bot.message_handler(func=lambda m: m.text in ["📆 Сегодня", "🗓️ На неделю"])
-def handle_schedule_period(message):
+# Улучшенный обработчик расписания
+@bot.message_handler(func=lambda m: m.text in ["📅 Расписание", "📆 Сегодня", "🗓️ На неделю", "⬅️ Назад"])
+def handle_schedule(message):
     chat_id = message.chat.id
+
+    if message.text == "📅 Расписание":
+        markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+        today_btn = types.KeyboardButton("📆 Сегодня")
+        week_btn = types.KeyboardButton("🗓️ На неделю")
+        back_btn = types.KeyboardButton("⬅️ Назад")
+        markup.add(today_btn, week_btn, back_btn)
+        bot.send_message(chat_id, "Выберите период:", reply_markup=markup)
+        return
+
+    if message.text == "⬅️ Назад":
+        send_main_menu(chat_id)
+        return
+
     mode = 'today' if message.text == "📆 Сегодня" else 'week'
 
     conn = getDBConnection()
     cursor = conn.cursor()
-    cursor.execute("SELECT id FROM users WHERE telegram_id = ?", (chat_id,))
-    user = cursor.fetchone()
-    conn.close()
+    try:
+        cursor.execute("SELECT id FROM users WHERE telegram_id = ?", (chat_id,))
+        user = cursor.fetchone()
 
-    if not user:
-        bot.send_message(chat_id, "❌ Вы не авторизованы.")
-        return
+        if not user:
+            bot.send_message(chat_id, "❌ Вы не авторизованы.")
+            return
 
-    user_id = user["id"]
-    schedule_text = fetch_schedule(user_id, mode)
-    bot.send_message(chat_id, schedule_text, parse_mode="HTML")
+        user_id = user["id"]
+        schedule_text = fetch_schedule(user_id, mode)
+        bot.send_message(chat_id, schedule_text, parse_mode="HTML")
+
+    except Exception as e:
+        bot.send_message(chat_id, f"❌ Ошибка при получении расписания: {str(e)}")
+    finally:
+        conn.close()
+
 
 def fetch_schedule(user_id, mode='today'):
     conn = getDBConnection()
@@ -216,32 +229,181 @@ def fetch_schedule(user_id, mode='today'):
         msg += f"   📍 Ауд. {lesson['room_number']} ({lesson['building']})\n"
     return msg
 
-# Заглушка "Мероприятия"
+
+# Обработчик кнопки "📋 Мероприятия"
 @bot.message_handler(func=lambda m: m.text == "📋 Мероприятия")
 def handle_events(message):
-    bot.send_message(message.chat.id, "🛠 Раздел мероприятий в разработке!")
+    conn = getDBConnection()
+    cursor = conn.cursor()
 
-# Переключение "Тихого режима"
-@bot.message_handler(func=lambda m: m.text in ["🔕 Включить", "🔔 Выключить"])
+    cursor.execute("SELECT role FROM users WHERE telegram_id = ?", (message.chat.id,))
+    user = cursor.fetchone()
+    if not user:
+        bot.send_message(message.chat.id, "❌ Вы не авторизованы.")
+        return
+
+    user_role = user['role']
+
+    cursor.execute("""
+        SELECT events.id, events.title, events.datetime, events.description, events.target_roles
+        FROM events
+        WHERE events.target_roles IN ('both', ?) OR (events.target_roles = 'both' AND events.group_id IS NULL)
+        ORDER BY events.datetime ASC
+    """, (user_role,))
+
+    events = cursor.fetchall()
+    conn.close()
+
+    if not events:
+        bot.send_message(message.chat.id, "На данный момент нет доступных мероприятий.")
+        return
+
+    for event in events:
+        markup = types.InlineKeyboardMarkup()
+        conn = getDBConnection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM event_participants WHERE event_id = ? AND user_id = ?",
+                       (event['id'], message.chat.id))
+        existing_registration = cursor.fetchone()
+
+        if existing_registration:
+            cancel_button = types.InlineKeyboardButton("❌ Отменить запись", callback_data=f"leave_{event['id']}")
+            markup.add(cancel_button)
+        else:
+            join_button = types.InlineKeyboardButton("🔗 Записаться", callback_data=f"join_{event['id']}")
+            markup.add(join_button)
+
+        event_text = f"🎉 <b>{event['title']}</b>\n"
+        event_text += f"📅 Дата: {event['datetime']}\n"
+        event_text += f"📍 {event['description']}\n"
+
+        bot.send_message(
+            message.chat.id,
+            event_text,
+            parse_mode="HTML",
+            reply_markup=markup
+        )
+
+
+# Обработчик записи на мероприятие
+@bot.callback_query_handler(func=lambda call: call.data.startswith('join_'))
+def join_event(call):
+    chat_id = call.message.chat.id
+    message_id = call.message.message_id
+    event_id = int(call.data.split('_')[1])
+
+    try:
+        conn = getDBConnection()
+        cursor = conn.cursor()
+
+        # Проверяем существование мероприятия
+        cursor.execute("SELECT * FROM events WHERE id = ?", (event_id,))
+        event = cursor.fetchone()
+
+        if not event:
+            bot.answer_callback_query(call.id, "Это мероприятие не существует.")
+            return
+
+        # Проверяем, не записан ли уже пользователь
+        cursor.execute("SELECT * FROM event_participants WHERE event_id = ? AND user_id = ?",
+                      (event_id, chat_id))
+        if cursor.fetchone():
+            bot.answer_callback_query(call.id, "Вы уже записаны на это мероприятие!")
+            return
+
+        # Записываем пользователя
+        cursor.execute("INSERT INTO event_participants (event_id, user_id, status) VALUES (?, ?, 'going')",
+                      (event_id, chat_id))
+        conn.commit()
+
+        # Удаляем все предыдущие сообщения с мероприятиями
+        bot.clear_step_handler_by_chat_id(chat_id)
+        bot.delete_message(chat_id, message_id)
+
+        # Отправляем подтверждение
+        bot.send_message(chat_id, f"✅ Вы успешно записаны на мероприятие: {event['title']}!")
+
+        # Обновляем список мероприятий
+        handle_events(call.message)
+
+    except Exception as e:
+        bot.answer_callback_query(call.id, f"Ошибка: {str(e)}")
+    finally:
+        conn.close()
+
+# Обработчик отмены записи
+@bot.callback_query_handler(func=lambda call: call.data.startswith('leave_'))
+def leave_event(call):
+    chat_id = call.message.chat.id
+    message_id = call.message.message_id
+    event_id = int(call.data.split('_')[1])
+
+    try:
+        conn = getDBConnection()
+        cursor = conn.cursor()
+
+        # Проверяем существование мероприятия
+        cursor.execute("SELECT * FROM events WHERE id = ?", (event_id,))
+        event = cursor.fetchone()
+
+        if not event:
+            bot.answer_callback_query(call.id, "Это мероприятие не существует.")
+            return
+
+        # Проверяем, записан ли пользователь
+        cursor.execute("SELECT * FROM event_participants WHERE event_id = ? AND user_id = ?",
+                      (event_id, chat_id))
+        if not cursor.fetchone():
+            bot.answer_callback_query(call.id, "Вы не записаны на это мероприятие!")
+            return
+
+        # Удаляем запись
+        cursor.execute("DELETE FROM event_participants WHERE event_id = ? AND user_id = ?",
+                      (event_id, chat_id))
+        conn.commit()
+
+        # Удаляем все предыдущие сообщения с мероприятиями
+        bot.clear_step_handler_by_chat_id(chat_id)
+        bot.delete_message(chat_id, message_id)
+
+        # Отправляем подтверждение
+        bot.send_message(chat_id, f"❌ Вы отменили запись на мероприятие: {event['title']}!")
+
+        # Обновляем список мероприятий
+        handle_events(call.message)
+
+    except Exception as e:
+        bot.answer_callback_query(call.id, f"Ошибка: {str(e)}")
+    finally:
+        conn.close()
+
+
+# Обработчик кнопки "Включить/Выключить тихий режим"
+@bot.message_handler(func=lambda m: m.text == "🔕 Включить" or m.text == "🔔 Выключить")
 def toggle_silent_mode(message):
     chat_id = message.chat.id
     conn = getDBConnection()
     cursor = conn.cursor()
+
     cursor.execute("SELECT silent_mode FROM users WHERE telegram_id = ?", (chat_id,))
     user = cursor.fetchone()
 
     if user:
-        new_mode = 0 if user["silent_mode"] else 1
-        cursor.execute("UPDATE users SET silent_mode = ? WHERE telegram_id = ?", (new_mode, chat_id))
+        new_silent_mode = 0 if user['silent_mode'] else 1
+        cursor.execute("UPDATE users SET silent_mode = ? WHERE telegram_id = ?", (new_silent_mode, chat_id))
         conn.commit()
+        conn.close()
 
-        # Сообщение о состоянии тихого режима
-        mode_text = "Тихий режим включен." if new_mode == 1 else "Тихий режим выключен."
-        bot.send_message(chat_id, mode_text)
+        new_silent_text = "🔕 Включить" if new_silent_mode == 0 else "🔔 Выключить"
+        send_main_menu(chat_id)
+        bot.send_message(chat_id, f"🔊 Тихий режим {'выключен' if new_silent_mode == 0 else 'включен'}.")
+    else:
+        bot.send_message(chat_id, "❌ Вы не авторизованы.")
+        conn.close()
 
-    conn.close()
-    send_main_menu(chat_id)
 
 bot.infinity_polling()
+
+
 
 
