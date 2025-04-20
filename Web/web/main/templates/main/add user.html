@@ -1,0 +1,30 @@
+{% extends 'main/layout.html' %}
+
+{% block title %} Добавление нового пользователя {% endblock %}
+
+{% block content %}
+    <p>Добавление нового пользователя </p>
+{% endblock %}
+
+{% block form %}
+    {% if form %}
+    <form class="form-container" method="post">
+        <p class="form-header">Добавить</p>
+        <div class="form-fields">
+            {% csrf_token %}
+            {{ form }}
+        </div>
+        <button class="form-button" type="submit">Добавить</button>
+    </form>
+    {% else %}
+        <p>Выберите роль для добавления</p>
+    {% endif %}
+{% endblock %}
+
+{% block slidebar-title %}
+    Варианты создания пользователей
+{% endblock %}
+
+{% block tablelist %}
+    {{ tablelistGen }}
+{% endblock%}
