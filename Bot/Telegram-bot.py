@@ -3,12 +3,11 @@ import sqlite3
 import os
 from datetime import datetime, timedelta
 from telebot import types
-from Utils.Utils import hashPassword, verifyPassword
+from Utils.Utils import verifyPassword
 
-dbDir = "C:/Users/alexa/Desktop/KSU-Assistant/Utils"
+dbDir = "C:/Users/alexa/Desktop/KSU-Assistant-after-venv/Utils"
 DATABASE_PATH = os.path.join(dbDir, "university.db")
 botToken = '7637461107:AAFH6C5oy9WZIuQhZfkmH6YUbVNseduRA90'
-DATABASE_NAME = 'university.db'
 bot = telebot.TeleBot(botToken)
 user_states = {}
 
@@ -17,7 +16,25 @@ def getDBConnection():
     conn.row_factory = sqlite3.Row
     return conn
 
-# Приветствие с кнопкой
+# Функция для отображения главного меню
+def send_main_menu(chat_id):
+    conn = getDBConnection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT silent_mode FROM users WHERE telegram_id = ?", (chat_id,))
+    user = cursor.fetchone()
+    conn.close()
+
+    silent_mode = user['silent_mode'] if user else 0
+    silent_text = "🔕 Включить" if not silent_mode else "🔔 Выключить"
+
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    schedule_btn = types.KeyboardButton("📅 Получить расписание")
+    events_btn = types.KeyboardButton("📋 Мероприятия")
+    silent_btn = types.KeyboardButton(silent_text)
+    markup.add(schedule_btn, events_btn, silent_btn)
+    bot.send_message(chat_id, "Выберите действие:", reply_markup=markup)
+
+# /start
 @bot.message_handler(commands=['start'])
 def handleStart(message):
     chat_id = message.chat.id
@@ -30,10 +47,8 @@ def handleStart(message):
     conn.close()
 
     if user:
-        markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-        schedule_btn = types.KeyboardButton("📅 Получить расписание")
-        markup.add(schedule_btn)
-        bot.send_message(chat_id, "Вы уже авторизованы! Выберите действие ниже:", reply_markup=markup)
+        send_main_menu(chat_id)
+        bot.send_message(chat_id, "Вы уже авторизованы!")
     else:
         markup = types.InlineKeyboardMarkup()
         login_button = types.InlineKeyboardButton(text="🔐 Авторизоваться", callback_data="start_login")
@@ -51,7 +66,6 @@ def start_login_callback(call):
     bot.send_message(chat_id, 'Введите вашу корпоративную почту (например, @studklg.ru или @tksu.ru):')
     user_states[chat_id] = {'state': 'WAIT_EMAIL'}
 
-# Ввод почты
 @bot.message_handler(func=lambda m: user_states.get(m.chat.id, {}).get('state') == 'WAIT_EMAIL')
 def handle_email(message):
     chat_id = message.chat.id
@@ -68,21 +82,20 @@ def handle_email(message):
     conn.close()
 
     if not user:
-        bot.send_message(chat_id, 'Пользователь с такой почтой не найден. Обратитесь к администратору.')
+        bot.send_message(chat_id, 'Пользователь с такой почтой не найден.')
         return
 
     if user['telegram_id'] is not None:
         if str(user['telegram_id']) == str(chat_id):
             bot.send_message(chat_id, 'Вы уже авторизованы.')
         else:
-            bot.send_message(chat_id, 'Этот email уже привязан к другому аккаунту Telegram.')
+            bot.send_message(chat_id, 'Этот email уже привязан к другому аккаунту.')
         user_states.pop(chat_id, None)
         return
 
     user_states[chat_id] = {'state': 'WAIT_PASSWORD', 'email': email}
     bot.send_message(chat_id, 'Введите пароль:')
 
-# Ввод пароля
 @bot.message_handler(func=lambda m: user_states.get(m.chat.id, {}).get('state') == 'WAIT_PASSWORD')
 def handle_password(message):
     chat_id = message.chat.id
@@ -106,11 +119,7 @@ def handle_password(message):
 
     bot.send_message(chat_id, f'✅ Успешно авторизованы как {user["role"]}.')
     user_states.pop(chat_id, None)
-
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    schedule_btn = types.KeyboardButton("📅 Получить расписание")
-    markup.add(schedule_btn)
-    bot.send_message(chat_id, "Вы авторизованы! Выберите действие ниже:", reply_markup=markup)
+    send_main_menu(chat_id)
 
 # Обработчик кнопки "Получить расписание"
 @bot.message_handler(func=lambda m: m.text == "📅 Получить расписание")
@@ -122,7 +131,11 @@ def show_schedule_options(message):
     markup.add(today_btn, week_btn, back_btn)
     bot.send_message(message.chat.id, "Выберите, за какой период показать расписание:", reply_markup=markup)
 
-# Обработчик выбора расписания: сегодня или на неделю
+@bot.message_handler(func=lambda m: m.text == "🔙 Назад")
+def handle_back(message):
+    send_main_menu(message.chat.id)
+
+# Показ расписания
 @bot.message_handler(func=lambda m: m.text in ["📆 Сегодня", "🗓️ На неделю"])
 def handle_schedule_period(message):
     chat_id = message.chat.id
@@ -142,7 +155,6 @@ def handle_schedule_period(message):
     schedule_text = fetch_schedule(user_id, mode)
     bot.send_message(chat_id, schedule_text, parse_mode="HTML")
 
-# Функция для получения расписания из базы данных
 def fetch_schedule(user_id, mode='today'):
     conn = getDBConnection()
     cursor = conn.cursor()
@@ -203,5 +215,27 @@ def fetch_schedule(user_id, mode='today'):
         msg += f"⏰ {lesson['start_time']}–{lesson['end_time']}: <b>{lesson['subject_name']}</b>\n"
         msg += f"   📍 Ауд. {lesson['room_number']} ({lesson['building']})\n"
     return msg
+
+# Заглушка "Мероприятия"
+@bot.message_handler(func=lambda m: m.text == "📋 Мероприятия")
+def handle_events(message):
+    bot.send_message(message.chat.id, "🛠 Раздел мероприятий в разработке!")
+
+# Переключение "Тихого режима"
+@bot.message_handler(func=lambda m: m.text in ["🔕 Включить", "🔔 Выключить"])
+def toggle_silent_mode(message):
+    chat_id = message.chat.id
+    conn = getDBConnection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT silent_mode FROM users WHERE telegram_id = ?", (chat_id,))
+    user = cursor.fetchone()
+
+    if user:
+        new_mode = 0 if user["silent_mode"] else 1
+        cursor.execute("UPDATE users SET silent_mode = ? WHERE telegram_id = ?", (new_mode, chat_id))
+        conn.commit()
+
+    conn.close()
+    send_main_menu(chat_id)
 
 bot.infinity_polling()
