@@ -48,8 +48,29 @@ def generateHTMLTimeTable(group):
         7: 'Воскресение',
     }
 
+    with connection.cursor() as cursor:
+        query = f'SELECT * FROM pair_times'
+        print(query)
+        cursor.execute(query)
+        pairTimes = cursor.fetchall()
+
+    table = ''
+
+    table += '<tr>'
+    table += '<td>Время</td>'
+    for weekDay in dictWeekDays:
+        table += f'<td>{dictWeekDays[weekDay]}</td>'
+    table += '</tr>'
+
+    for pair_number, start_time, end_time in pairTimes:
+        table += '<tr>'
+        table += f'<td>{start_time}-{end_time}</td>'
+        for weekDay in dictWeekDays:
+            table += f'<td>-</td>'
+        table += '</tr>'
 
 
+    return table
 
 def lessonsPage(request):
     HTMLtimeTable = ''
