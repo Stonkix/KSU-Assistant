@@ -1,0 +1,28 @@
+{% extends 'main/layout.html' %}
+
+{% block title %} Расписание {% endblock %}
+
+{% block content %}
+    <p>Работа с расписанием </p>
+    {% block table %}
+        {% if table %}
+            <div class="table-container">
+                <table>
+                  {{ table }}
+                </table>
+            </div>
+        {% else %}
+            <p>Выберите группу для работы</p>
+        {% endif %}
+    {% endblock %}
+{% endblock %}
+
+
+
+{% block slidebar-title %}
+    Группы
+{% endblock %}
+
+{% block tablelist %}
+    {{ tablelistGen }}
+{% endblock%}

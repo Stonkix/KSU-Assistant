@@ -1,6 +1,7 @@
 from django.contrib import admin
 from django.urls import include, path
 from . import views
+from . import lessons
 
 urlpatterns = [
     path('', views.index),
@@ -10,4 +11,5 @@ urlpatterns = [
     path('add', views.addPage),
     path('delete', views.deletePage),
     path('test', views.testPage),
+    path('lessons', lessons.lessonsPage),
 ]
