@@ -128,7 +128,7 @@ def handle_password(message):
     send_main_menu(chat_id)
 
 
-# Улучшенный обработчик расписания
+# Обработчик расписания
 @bot.message_handler(func=lambda m: m.text in ["📅 Расписание", "📆 Сегодня", "🗓️ На неделю", "⬅️ Назад"])
 def handle_schedule(message):
     chat_id = message.chat.id
@@ -151,7 +151,7 @@ def handle_schedule(message):
     conn = getDBConnection()
     cursor = conn.cursor()
     try:
-        cursor.execute("SELECT id FROM users WHERE telegram_id = ?", (chat_id,))
+        cursor.execute("SELECT id, role FROM users WHERE telegram_id = ?", (chat_id,))
         user = cursor.fetchone()
 
         if not user:
@@ -159,7 +159,15 @@ def handle_schedule(message):
             return
 
         user_id = user["id"]
-        schedule_text = fetch_schedule(user_id, mode)
+        user_role = user["role"]
+
+        if user_role == 'student':
+            schedule_text = fetch_student_schedule(user_id, mode)
+        elif user_role == 'teacher':
+            schedule_text = fetch_teacher_schedule(user_id, mode)
+        else:
+            schedule_text = "❌ Ваша роль не поддерживает просмотр расписания."
+
         bot.send_message(chat_id, schedule_text, parse_mode="HTML")
 
     except Exception as e:
@@ -168,7 +176,7 @@ def handle_schedule(message):
         conn.close()
 
 
-def fetch_schedule(user_id, mode='today'):
+def fetch_student_schedule(user_id, mode='today'):
     conn = getDBConnection()
     cursor = conn.cursor()
 
@@ -176,7 +184,7 @@ def fetch_schedule(user_id, mode='today'):
     row = cursor.fetchone()
     if not row:
         conn.close()
-        return "❌ Вы не являетесь студентом или не назначены в группу."
+        return "❌ Вы не назначены в группу."
 
     group_id = row["group_id"]
     today = datetime.today()
@@ -186,11 +194,13 @@ def fetch_schedule(user_id, mode='today'):
     if mode == 'today':
         cursor.execute(""" 
             SELECT lessons.weekday, lessons.pair_number, pair_times.start_time, pair_times.end_time,
-                   subjects.name AS subject_name, rooms.room_number, rooms.building
+                   subjects.name AS subject_name, rooms.room_number, rooms.building,
+                   teachers.full_name AS teacher_name
             FROM lessons
             JOIN pair_times ON lessons.pair_number = pair_times.pair_number
             JOIN subjects ON lessons.subject_id = subjects.id
             JOIN rooms ON lessons.room_id = rooms.id
+            JOIN teachers ON lessons.teacher_id = teachers.user_id
             WHERE lessons.group_id = ? AND lessons.weekday = ?
               AND date(?) BETWEEN date(lessons.start_date) AND date(lessons.end_date)
             ORDER BY lessons.pair_number
@@ -200,11 +210,13 @@ def fetch_schedule(user_id, mode='today'):
         weekday_range = tuple(i for i in range(7))
         cursor.execute(f"""
             SELECT lessons.weekday, lessons.pair_number, pair_times.start_time, pair_times.end_time,
-                   subjects.name AS subject_name, rooms.room_number, rooms.building
+                   subjects.name AS subject_name, rooms.room_number, rooms.building,
+                   teachers.full_name AS teacher_name
             FROM lessons
             JOIN pair_times ON lessons.pair_number = pair_times.pair_number
             JOIN subjects ON lessons.subject_id = subjects.id
             JOIN rooms ON lessons.room_id = rooms.id
+            JOIN teachers ON lessons.teacher_id = teachers.user_id
             WHERE lessons.group_id = ?
               AND lessons.weekday IN ({','.join(['?'] * len(weekday_range))})
               AND date(?) BETWEEN date(lessons.start_date) AND date(lessons.end_date)
@@ -226,6 +238,67 @@ def fetch_schedule(user_id, mode='today'):
             msg += f"\n📅 <b>{days[day]}</b>\n"
             last_day = day
         msg += f"⏰ {lesson['start_time']}–{lesson['end_time']}: <b>{lesson['subject_name']}</b>\n"
+        msg += f"   👨‍🏫 {lesson['teacher_name']}\n"
+        msg += f"   📍 Ауд. {lesson['room_number']} ({lesson['building']})\n"
+    return msg
+
+
+def fetch_teacher_schedule(user_id, mode='today'):
+    conn = getDBConnection()
+    cursor = conn.cursor()
+
+    today = datetime.today()
+    weekday = today.weekday()
+    today_str = today.strftime('%Y-%m-%d')
+
+    if mode == 'today':
+        cursor.execute(""" 
+            SELECT lessons.weekday, lessons.pair_number, pair_times.start_time, pair_times.end_time,
+                   subjects.name AS subject_name, rooms.room_number, rooms.building,
+                   academic_groups.name AS group_name
+            FROM lessons
+            JOIN pair_times ON lessons.pair_number = pair_times.pair_number
+            JOIN subjects ON lessons.subject_id = subjects.id
+            JOIN rooms ON lessons.room_id = rooms.id
+            JOIN academic_groups ON lessons.group_id = academic_groups.id
+            WHERE lessons.teacher_id = ? AND lessons.weekday = ?
+              AND date(?) BETWEEN date(lessons.start_date) AND date(lessons.end_date)
+            ORDER BY lessons.pair_number
+        """, (user_id, weekday, today_str))
+    else:
+        week_dates = [(today + timedelta(days=i)).strftime('%Y-%m-%d') for i in range(7)]
+        weekday_range = tuple(i for i in range(7))
+        cursor.execute(f"""
+            SELECT lessons.weekday, lessons.pair_number, pair_times.start_time, pair_times.end_time,
+                   subjects.name AS subject_name, rooms.room_number, rooms.building,
+                   academic_groups.name AS group_name
+            FROM lessons
+            JOIN pair_times ON lessons.pair_number = pair_times.pair_number
+            JOIN subjects ON lessons.subject_id = subjects.id
+            JOIN rooms ON lessons.room_id = rooms.id
+            JOIN academic_groups ON lessons.group_id = academic_groups.id
+            WHERE lessons.teacher_id = ?
+              AND lessons.weekday IN ({','.join(['?'] * len(weekday_range))})
+              AND date(?) BETWEEN date(lessons.start_date) AND date(lessons.end_date)
+            ORDER BY lessons.weekday, lessons.pair_number
+        """, (user_id, *weekday_range, today_str))
+
+    lessons = cursor.fetchall()
+    conn.close()
+
+    if not lessons:
+        return "📝 Расписание не найдено."
+
+    days = ['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота', 'Воскресенье']
+    msg = ""
+    last_day = -1
+    for lesson in lessons:
+        day = lesson['weekday']
+        if mode == 'week' and day != last_day:
+            msg += f"\n📅 <b>{days[day]}</b>\n"
+            last_day = day
+        msg += f"⏰ {lesson['start_time']}–{lesson['end_time']}: <b>{lesson['subject_name']}</b>\n"
+        msg += f"   👥 Группа: {lesson['group_name']}\n"
         msg += f"   📍 Ауд. {lesson['room_number']} ({lesson['building']})\n"
     return msg
 
@@ -306,14 +379,14 @@ def join_event(call):
 
         # Проверяем, не записан ли уже пользователь
         cursor.execute("SELECT * FROM event_participants WHERE event_id = ? AND user_id = ?",
-                      (event_id, chat_id))
+                       (event_id, chat_id))
         if cursor.fetchone():
             bot.answer_callback_query(call.id, "Вы уже записаны на это мероприятие!")
             return
 
         # Записываем пользователя
         cursor.execute("INSERT INTO event_participants (event_id, user_id, status) VALUES (?, ?, 'going')",
-                      (event_id, chat_id))
+                       (event_id, chat_id))
         conn.commit()
 
         # Удаляем все предыдущие сообщения с мероприятиями
@@ -330,6 +403,7 @@ def join_event(call):
         bot.answer_callback_query(call.id, f"Ошибка: {str(e)}")
     finally:
         conn.close()
+
 
 # Обработчик отмены записи
 @bot.callback_query_handler(func=lambda call: call.data.startswith('leave_'))
@@ -352,14 +426,14 @@ def leave_event(call):
 
         # Проверяем, записан ли пользователь
         cursor.execute("SELECT * FROM event_participants WHERE event_id = ? AND user_id = ?",
-                      (event_id, chat_id))
+                       (event_id, chat_id))
         if not cursor.fetchone():
             bot.answer_callback_query(call.id, "Вы не записаны на это мероприятие!")
             return
 
         # Удаляем запись
         cursor.execute("DELETE FROM event_participants WHERE event_id = ? AND user_id = ?",
-                      (event_id, chat_id))
+                       (event_id, chat_id))
         conn.commit()
 
         # Удаляем все предыдущие сообщения с мероприятиями
@@ -403,7 +477,3 @@ def toggle_silent_mode(message):
 
 
 bot.infinity_polling()
-
-
-
-
