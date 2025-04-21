@@ -135,6 +135,13 @@ header {
     border-radius: 3px;
 }
 
+.form-fields select {
+    padding: 5px;
+    font-size: 14px;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+}
+
 /* Кнопка */
 .form-button {
     margin-top: 10px;
