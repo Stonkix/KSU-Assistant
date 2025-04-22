@@ -22,6 +22,30 @@ def GETGroup(request):
     return None
 
 
+def GETId(request):
+    id = request.GET.get('id')
+    if id is not None:
+        print(f'id: {id}')
+        return id
+    return None
+
+
+def GETWeekDay(request):
+    weekDay = request.GET.get('weekday')
+    if weekDay is not None:
+        print(f'weekDay: {weekDay}')
+        return weekDay
+    return None
+
+
+def GETPairNumber(request):
+    pairNumber = request.GET.get('pair-number')
+    if pairNumber is not None:
+        print(f'pairNumber: {pairNumber}')
+        return pairNumber
+    return None
+
+
 def generateGroupList():
     groupList = ''
     with connection.cursor() as cursor:
@@ -117,9 +141,10 @@ def generateHTMLTimeTable(group):
                                     {dictSubjects[lesson[1]]}<br>
                                     {dictTeachers[lesson[2]]}<br>
                                     {dictRooms[lesson[4]][0]} к.{dictRooms[lesson[4]][1]}<br>
+                                    {lesson[5]} по {lesson[6]}<br>
                                     {dictWeekParity[lesson[-1]]}<br>
                                 </div>"""
-                    table += f'<div class="empty-cell" weekday="{weekDay}" pair-number="{pair_number}">+</div>'
+                table += f'<div class="empty-cell" weekday="{weekDay}" pair-number="{pair_number}">+</div>'
                 table += '</td>'
             else:
                 table += '<td>'
@@ -130,19 +155,129 @@ def generateHTMLTimeTable(group):
 
     return table
 
+
+def generateFormForNewLesson(group, weekDay, pairNumber):
+    dictColumns = {
+        'subject_id' : 'Предмет',
+        'teacher_id' : 'Преподаватель',
+        'room_id' : 'Кабинет',
+        'start_date' : 'Начало (ГГГГ-ММ-ДД)',
+        'end_date' : 'Конец (ГГГГ-ММ-ДД)',
+        'week_parity' : 'Числитель/Знаменатель'
+    }
+
+    with connection.cursor() as cursor:
+        query = f"""
+        SELECT *
+        FROM subjects
+        """
+        cursor.execute(query)
+        subjects = cursor.fetchall()
+
+    with connection.cursor() as cursor:
+        query = f"""
+        SELECT *
+        FROM teachers
+        """
+        cursor.execute(query)
+        teachers = cursor.fetchall()
+
+    with connection.cursor() as cursor:
+        query = f"""
+        SELECT *
+        FROM rooms
+        """
+        cursor.execute(query)
+        rooms = cursor.fetchall()
+
+    form = ''
+
+    form += '<p><label for="subject_id">Предмет</label>'
+    form += '<select name="subject_id">'
+    form += '<option value="" selected disabled>Выберите предмет</option>'
+    for subject in subjects: # id, name
+        form += f'<option value="{subject[0]}">{subject[1]}</option>'
+    form += '</select></p>'
+
+    form += '<p><label for="teacher_id">Преподаватель</label>'
+    form += '<select name="teacher_id">'
+    form += '<option value="" selected disabled>Выберите преподавателя</option>'
+    for teacher in teachers:  # user_id, full_name
+        form += f'<option value="{teacher[0]}">{teacher[1]}</option>'
+    form += '</select></p>'
+
+    form += f'<input type=\"hidden\" name=\"group_id\" value=\"{group}\">'
+
+    form += '<p><label for="room_id">Кабинет</label>'
+    form += '<select name="room_id">'
+    form += '<option value="" selected disabled>Выберите кабинет</option>'
+    for room in rooms:  # id, room_number, building
+        form += f'<option value="{room[0]}">{room[1]} к.{room[2]}</option>'
+    form += '</select></p>'
+
+    form += f'''
+                <p><label for=\"start_date\">Начало (ГГГГ-ММ-ДД)</label>
+                <input type=\"text\" name=\"start_date\"></p>
+            '''
+
+    form += f'''
+                <p><label for=\"end_date\">Конец (ГГГГ-ММ-ДД)</label>
+                <input type=\"text\" name=\"end_date\"></p>
+            '''
+
+    form += f'<input type=\"hidden\" name=\"weekday\" value=\"{weekDay}\">'
+    form += f'<input type=\"hidden\" name=\"pair_number\" value=\"{pairNumber}\">'
+    form += f'<input type=\"hidden\" name=\"recurrence\" value=\"weekly\">'
+
+    form += '<p><label for="week_parity">Числитель/Знаменатель</label>'
+    form += '<select name="week_parity">'
+    form += '<option value="" selected disabled>Выберите неделю</option>'
+    form += '<option value="even">Числитель</option>'
+    form += '<option value="odd">Знаменатель</option>'
+    form += '</select></p>'
+
+    return form
+
+
 def lessonsPage(request):
     HTMLtimeTable = ''
-
+    form = ''
     if request.method == "GET":
         group = GETGroup(request)
         if group is not None:
             HTMLtimeTable = generateHTMLTimeTable(group)
+            id = GETId(request)
+            weekDay = GETWeekDay(request)
+            pairNumber = GETPairNumber(request)
 
-    elif request.method == "POST":
-        pass
+            if id:
+                pass
+            elif weekDay and pairNumber:
+                form = generateFormForNewLesson(group, weekDay, pairNumber)
+
+    if request.method == "POST":
+        keys = []
+        values = []
+        for key, value in request.POST.items():
+            if key == 'csrfmiddlewaretoken':
+                continue
+
+            if value == '':
+                values.append('NULL')
+            else:
+                values.append(f"\'{value}\'")
+            keys.append(key)
+
+        with connection.cursor() as cursor:
+            query = f'INSERT INTO lessons ({", ".join(keys)}) VALUES ({", ".join(values)})'
+            print(query)
+            cursor.execute(query)
+        group = GETGroup(request)
+        query_params = urlencode({'groupId': group})
+        return redirect(f"{request.path}?{query_params}")
 
     groupList = generateGroupList()
     renderPage = render(request, 'main/lessons.html',
-                        {'tablelistGen': mark_safe(groupList), 'table': mark_safe(HTMLtimeTable)})
+                        {'tablelistGen': mark_safe(groupList), 'table': mark_safe(HTMLtimeTable), 'form': mark_safe(form)})
 
     return renderPage

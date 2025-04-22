@@ -17,7 +17,20 @@
     {% endblock %}
 {% endblock %}
 
-
+{% block form %}
+    {% if form %}
+        <form class="form-container" method="post">
+            <p class="form-header">Работа с расписанием</p>
+            <div class="form-fields">
+                {% csrf_token %}
+                {{ form }}
+            </div>
+            <button class="form-button" type="submit">Применить</button>
+        </form>
+    {% else %}
+        <p>Выберите пару для добавления или изменения</p>
+    {% endif %}
+{% endblock %}
 
 {% block slidebar-title %}
     Группы
