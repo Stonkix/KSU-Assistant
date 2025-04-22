@@ -99,29 +99,32 @@ def generateHTMLTimeTable(group):
 
     table = ''
 
-    table += '<tr>'
+    table += '<tr class="noHover">'
     table += '<td>Время</td>'
     for weekDay in dictWeekDays:
         table += f'<td>{dictWeekDays[weekDay]}</td>'
     table += '</tr>'
 
     for pair_number, start_time, end_time in pairTimes:
-        table += '<tr>'
+        table += '<tr class="noHover">'
         table += f'<td>{start_time}-{end_time}</td>'
         for weekDay in dictWeekDays:
             if (weekDay, pair_number) in dictLessons:
                 table += '<td>'
                 for lesson in dictLessons.get((weekDay, pair_number), []):
 
-                    table += f"""<div>
+                    table += f"""<div class="filled-cell">
                                     {dictSubjects[lesson[1]]}<br>
                                     {dictTeachers[lesson[2]]}<br>
                                     {dictRooms[lesson[4]][0]} к.{dictRooms[lesson[4]][1]}<br>
                                     {dictWeekParity[lesson[-1]]}<br>
                                 </div>"""
+                    table += '<div class="empty-cell">+</div>'
                 table += '</td>'
             else:
-                table += f'<td>-</td>'
+                table += '<td>'
+                table += '<div class="empty-cell">+</div>'
+                table += '</td>'
         table += '</tr>'
 
 

@@ -202,3 +202,31 @@ table tr:nth-child(even) {
 table tr:hover {
     background-color: #ddd; /* Серый фон при наведении мыши на строку */
 }
+
+.noHover{
+    pointer-events: none;
+}
+
+/*table tr.noHover:hover {*/
+/*    background: original-background;*/
+/*}*/
+
+.noHover td > div {
+    pointer-events: auto;
+}
+
+table .filled-cell {
+    border-bottom: 1px dashed black;
+}
+
+table .empty-cell {
+    font-size: 24px;
+    text-align: center;
+    margin-top: 5px;
+}
+
+.filled-cell:hover,
+.empty-cell:hover {
+    background-color: #cceeff;
+    cursor: pointer;
+}
