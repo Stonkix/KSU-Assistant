@@ -53,9 +53,10 @@ def check_schedule_changes():
                        s.name as subject_name, r.room_number, r.building,
                        pt.start_time, pt.end_time
                 FROM lessons l
+                JOIN pair_times pt ON l.pair_number = pt.pair_number
                 JOIN subjects s ON l.subject_id = s.id
                 JOIN rooms r ON l.room_id = r.id
-                JOIN pair_times pt ON l.pair_number = pt.pair_number
+                WHERE date('now') BETWEEN date(l.start_date) AND date(l.end_date)
             """)
             new_schedule = {row['id']: dict(row) for row in cursor.fetchall()}
 
@@ -211,6 +212,7 @@ def stop_notifications():
     if notification_thread:
         notification_thread.join()
 
+
 # Функция для отображения главного меню
 def send_main_menu(chat_id):
     conn = getDBConnection()
@@ -225,8 +227,9 @@ def send_main_menu(chat_id):
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     schedule_btn = types.KeyboardButton("📅 Расписание")
     events_btn = types.KeyboardButton("📋 Мероприятия")
+    week_btn = types.KeyboardButton("📅 Числитель/Знаменатель?")
     silent_btn = types.KeyboardButton(silent_text)
-    markup.add(schedule_btn, events_btn, silent_btn)
+    markup.add(schedule_btn, events_btn, silent_btn, week_btn)
     bot.send_message(chat_id, "Выберите действие:", reply_markup=markup)
 
 
@@ -499,59 +502,142 @@ def fetch_teacher_schedule(user_id, mode='today'):
 # Обработчик кнопки "📋 Мероприятия"
 @bot.message_handler(func=lambda m: m.text == "📋 Мероприятия")
 def handle_events(message):
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    new_events_btn = types.KeyboardButton("❓ Узнать о новых мероприятиях")
+    history_btn = types.KeyboardButton("🗂 История посещенных мероприятий")
+    back_btn = types.KeyboardButton("⬅️ Назад в меню")
+    markup.add(new_events_btn, history_btn, back_btn)
+    bot.send_message(message.chat.id, "Выберите действие:", reply_markup=markup)
+
+
+# Обработчик подменю мероприятий
+@bot.message_handler(
+    func=lambda m: m.text in ["❓ Узнать о новых мероприятиях", "🗂 История посещенных мероприятий", "⬅️ Назад в меню"])
+def handle_events_submenu(message):
+    chat_id = message.chat.id
+
+    if message.text == "⬅️ Назад в меню":
+        send_main_menu(chat_id)
+        return
+
     conn = getDBConnection()
     cursor = conn.cursor()
 
-    cursor.execute("SELECT role FROM users WHERE telegram_id = ?", (message.chat.id,))
-    user = cursor.fetchone()
-    if not user:
-        bot.send_message(message.chat.id, "❌ Вы не авторизованы.")
-        return
+    try:
+        # Получаем информацию о пользователе
+        cursor.execute("SELECT id, role FROM users WHERE telegram_id = ?", (chat_id,))
+        user = cursor.fetchone()
+        if not user:
+            bot.send_message(chat_id, "❌ Вы не авторизованы.")
+            return
 
-    user_role = user['role']
+        user_id = user["id"]
+        user_role = user["role"]
+        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
-    cursor.execute("""
-        SELECT events.id, events.title, events.datetime, events.description, events.target_roles
-        FROM events
-        WHERE events.target_roles IN ('both', ?) OR (events.target_roles = 'both' AND events.group_id IS NULL)
-        ORDER BY events.datetime ASC
-    """, (user_role,))
+        if message.text == "❓ Узнать о новых мероприятиях":
+            # Показываем будущие мероприятия, на которые можно записаться
+            cursor.execute("""
+                SELECT e.id, e.title, e.datetime, e.description, e.target_roles,
+                       CASE WHEN ep.user_id IS NOT NULL THEN 1 ELSE 0 END as is_registered
+                FROM events e
+                LEFT JOIN event_participants ep ON e.id = ep.event_id AND ep.user_id = ?
+                WHERE (e.target_roles IN ('both', ?)) 
+                  AND e.datetime > ?
+                ORDER BY e.datetime ASC
+            """, (user_id, user_role, now))
 
-    events = cursor.fetchall()
-    conn.close()
+            events = cursor.fetchall()
 
-    if not events:
-        bot.send_message(message.chat.id, "На данный момент нет доступных мероприятий.")
-        return
+            if not events:
+                bot.send_message(chat_id, "На данный момент нет доступных мероприятий.")
+                return
 
-    for event in events:
-        markup = types.InlineKeyboardMarkup()
-        conn = getDBConnection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM event_participants WHERE event_id = ? AND user_id = ?",
-                       (event['id'], message.chat.id))
-        existing_registration = cursor.fetchone()
+            for event in events:
+                markup = types.InlineKeyboardMarkup()
 
-        if existing_registration:
-            cancel_button = types.InlineKeyboardButton("❌ Отменить запись", callback_data=f"leave_{event['id']}")
-            markup.add(cancel_button)
-        else:
-            join_button = types.InlineKeyboardButton("🔗 Записаться", callback_data=f"join_{event['id']}")
-            markup.add(join_button)
+                if event['is_registered']:
+                    cancel_button = types.InlineKeyboardButton("❌ Отменить запись",
+                                                               callback_data=f"leave_{event['id']}")
+                    markup.add(cancel_button)
+                    status_text = "✅ Вы записаны"
+                else:
+                    join_button = types.InlineKeyboardButton("🔗 Записаться", callback_data=f"join_{event['id']}")
+                    markup.add(join_button)
+                    status_text = ""
 
-        event_text = f"🎉 <b>{event['title']}</b>\n"
-        event_text += f"📅 Дата: {event['datetime']}\n"
-        event_text += f"📍 {event['description']}\n"
+                event_text = f"🎉 <b>{event['title']}</b>\n"
+                event_text += f"📅 Дата: {event['datetime']}\n"
+                event_text += f"📍 {event['description']}\n"
+                if status_text:
+                    event_text += f"\n{status_text}\n"
 
-        bot.send_message(
-            message.chat.id,
-            event_text,
-            parse_mode="HTML",
-            reply_markup=markup
-        )
+                bot.send_message(
+                    chat_id,
+                    event_text,
+                    parse_mode="HTML",
+                    reply_markup=markup
+                )
+
+        elif message.text == "🗂 История посещенных мероприятий":
+            # Показываем мероприятия, на которые пользователь записывался
+            cursor.execute("""
+                SELECT e.id, e.title, e.datetime, e.description,
+                       CASE WHEN e.datetime < ? THEN 1 ELSE 0 END as is_past
+                FROM events e
+                JOIN event_participants ep ON e.id = ep.event_id
+                WHERE ep.user_id = ?
+                ORDER BY e.datetime DESC
+            """, (now, user_id))
+
+            events = cursor.fetchall()
+
+            if not events:
+                bot.send_message(chat_id, "Вы еще не записывались ни на одно мероприятие.")
+                return
+
+            for event in events:
+                event_text = f"🎫 <b>{event['title']}</b>\n"
+                event_text += f"📅 Дата: {event['datetime']}\n"
+                event_text += f"📍 {event['description']}\n"
+
+                if event['is_past']:
+                    event_text += "\n🔹 Мероприятие уже прошло\n"
+                else:
+                    markup = types.InlineKeyboardMarkup()
+                    cancel_button = types.InlineKeyboardButton("❌ Отменить запись",
+                                                               callback_data=f"leave_{event['id']}")
+                    markup.add(cancel_button)
+                    event_text += "\n🔹 Вы записаны\n"
+                    bot.send_message(
+                        chat_id,
+                        event_text,
+                        parse_mode="HTML",
+                        reply_markup=markup
+                    )
+                    continue
+
+                bot.send_message(
+                    chat_id,
+                    event_text,
+                    parse_mode="HTML"
+                )
+
+    except Exception as e:
+        bot.send_message(chat_id, f"❌ Ошибка при получении мероприятий: {str(e)}")
+    finally:
+        conn.close()
 
 
-# Обработчик записи на мероприятие
+@bot.message_handler(func=lambda m: m.text == "📅 Числитель/Знаменатель?")
+def week(message):
+    numberWeek = datetime.now().isocalendar().week
+    if (numberWeek % 2 == 0):
+        bot.send_message(message.chat.id, "📆 Сейчас числитель.", parse_mode="HTML", )
+    else:
+        bot.send_message(message.chat.id, "📆 Сейчас знаминатель.", parse_mode="HTML", )
+
+
 @bot.callback_query_handler(func=lambda call: call.data.startswith('join_'))
 def join_event(call):
     chat_id = call.message.chat.id
@@ -565,32 +651,34 @@ def join_event(call):
         # Проверяем существование мероприятия
         cursor.execute("SELECT * FROM events WHERE id = ?", (event_id,))
         event = cursor.fetchone()
-
         if not event:
             bot.answer_callback_query(call.id, "Это мероприятие не существует.")
             return
 
+        # Получаем внутренний ID пользователя
+        cursor.execute("SELECT id FROM users WHERE telegram_id = ?", (chat_id,))
+        user = cursor.fetchone()
+        if not user:
+            bot.answer_callback_query(call.id, "Ошибка: пользователь не найден.")
+            return
+        user_id = user["id"]
+
         # Проверяем, не записан ли уже пользователь
-        cursor.execute("SELECT * FROM event_participants WHERE event_id = ? AND user_id = ?",
-                       (event_id, chat_id))
+        cursor.execute("SELECT * FROM event_participants WHERE event_id = ? AND user_id = ?", (event_id, user_id))
         if cursor.fetchone():
             bot.answer_callback_query(call.id, "Вы уже записаны на это мероприятие!")
             return
 
         # Записываем пользователя
         cursor.execute("INSERT INTO event_participants (event_id, user_id, status) VALUES (?, ?, 'going')",
-                       (event_id, chat_id))
+                       (event_id, user_id))
         conn.commit()
 
-        # Удаляем все предыдущие сообщения с мероприятиями
         bot.clear_step_handler_by_chat_id(chat_id)
         bot.delete_message(chat_id, message_id)
 
-        # Отправляем подтверждение
         bot.send_message(chat_id, f"✅ Вы успешно записаны на мероприятие: {event['title']}!")
-
-        # Обновляем список мероприятий
-        handle_events(call.message)
+        handle_events_submenu(call.message)
 
     except Exception as e:
         bot.answer_callback_query(call.id, f"Ошибка: {str(e)}")
@@ -598,7 +686,7 @@ def join_event(call):
         conn.close()
 
 
-# Обработчик отмены записи
+
 @bot.callback_query_handler(func=lambda call: call.data.startswith('leave_'))
 def leave_event(call):
     chat_id = call.message.chat.id
@@ -612,32 +700,33 @@ def leave_event(call):
         # Проверяем существование мероприятия
         cursor.execute("SELECT * FROM events WHERE id = ?", (event_id,))
         event = cursor.fetchone()
-
         if not event:
             bot.answer_callback_query(call.id, "Это мероприятие не существует.")
             return
 
+        # Получаем внутренний ID пользователя
+        cursor.execute("SELECT id FROM users WHERE telegram_id = ?", (chat_id,))
+        user = cursor.fetchone()
+        if not user:
+            bot.answer_callback_query(call.id, "Ошибка: пользователь не найден.")
+            return
+        user_id = user["id"]
+
         # Проверяем, записан ли пользователь
-        cursor.execute("SELECT * FROM event_participants WHERE event_id = ? AND user_id = ?",
-                       (event_id, chat_id))
+        cursor.execute("SELECT * FROM event_participants WHERE event_id = ? AND user_id = ?", (event_id, user_id))
         if not cursor.fetchone():
             bot.answer_callback_query(call.id, "Вы не записаны на это мероприятие!")
             return
 
         # Удаляем запись
-        cursor.execute("DELETE FROM event_participants WHERE event_id = ? AND user_id = ?",
-                       (event_id, chat_id))
+        cursor.execute("DELETE FROM event_participants WHERE event_id = ? AND user_id = ?", (event_id, user_id))
         conn.commit()
 
-        # Удаляем все предыдущие сообщения с мероприятиями
         bot.clear_step_handler_by_chat_id(chat_id)
         bot.delete_message(chat_id, message_id)
 
-        # Отправляем подтверждение
         bot.send_message(chat_id, f"❌ Вы отменили запись на мероприятие: {event['title']}!")
-
-        # Обновляем список мероприятий
-        handle_events(call.message)
+        handle_events_submenu(call.message)
 
     except Exception as e:
         bot.answer_callback_query(call.id, f"Ошибка: {str(e)}")
@@ -667,6 +756,7 @@ def toggle_silent_mode(message):
     else:
         bot.send_message(chat_id, "❌ Вы не авторизованы.")
         conn.close()
+
 
 # Запуск проверки изменений в расписании
 start_notifications()
