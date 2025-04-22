@@ -7,6 +7,7 @@ from urllib.parse import urlencode
 
 import sys
 from pathlib import Path
+from time import sleep
 
 sys.path.append(str(Path(__file__).resolve().parents[3] / 'Utils'))
 
@@ -74,12 +75,13 @@ dictUserTypes = {
 
 def GETPrimaryKeyName(table_name):
     with connection.cursor() as cursor:
-        # (cid, name, type, notnull, dflt_value, pk)
         query = f"PRAGMA table_info({table_name});"
         cursor.execute(query)
         columns = cursor.fetchall()
-        primaryKeyName = columns[0][1]
-    return primaryKeyName
+        for column in columns:
+            if column[5]:
+                return column[1]
+    return None
 
 
 def GETTable(request):
@@ -161,6 +163,7 @@ def generateFilledForm(table_name, id):
         # FROM INFORMATION_SCHEMA.COLUMNS
         # WHERE TABLE_NAME = '{table_name}'
         # """
+
         query = f"PRAGMA table_info({table_name});"
         cursor.execute(query)
         columns = cursor.fetchall()
@@ -438,7 +441,7 @@ def changePage(request):
             if key == 'table':
                 table = value
                 continue
-            if key in primary_keys:
+            if key in primary_keys and primaryKeyName == '':
                 id = value
                 primaryKeyName = key
                 continue
@@ -460,7 +463,7 @@ def changePage(request):
             print(query)
             cursor.execute(query)
 
-        query_params = urlencode({'table': table, 'id': id})
+        query_params = urlencode({'table': table}) # , 'id': id
         return redirect(f"{request.path}?{query_params}")
 
     tableList = generateTableList()
@@ -535,7 +538,7 @@ def deletePage(request):
             if key == 'table':
                 table = value
                 continue
-            if key in primary_keys:
+            if key in primary_keys and primaryKeyName == '':
                 id = value
                 primaryKeyName = key
                 continue
