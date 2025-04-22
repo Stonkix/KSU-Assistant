@@ -44,7 +44,7 @@ def check_schedule_changes():
     current_schedule = {row['id']: dict(row) for row in cursor.fetchall()}
 
     while not stop_notifications:
-        time.sleep(15)  # Проверяем 15 сек
+        time.sleep(5)  # Проверяем 15 сек
 
         try:
             # Получаем новое состояние расписания
@@ -108,7 +108,7 @@ def check_schedule_changes():
 
                         # Отправляем студентам группы
                         cursor.execute(
-                            "SELECT u.telegram_id FROM users u JOIN students s ON u.id = s.user_id WHERE s.group_id = ?",
+                            "SELECT u.telegram_id FROM users u JOIN students s ON u.id = s.user_id WHERE s.group_id = ? AND (u.silent_mode IS NULL OR u.silent_mode != 1)",
                             (lesson_data['group_id'],))
                         for row in cursor.fetchall():
                             try:
@@ -117,8 +117,9 @@ def check_schedule_changes():
                                 print(f"Failed to send notification to {row['telegram_id']}: {e}")
 
                         # Отправляем преподавателю
-                        cursor.execute("SELECT u.telegram_id FROM users u WHERE u.id = ?",
-                                       (lesson_data['teacher_id'],))
+                        cursor.execute(
+                            "SELECT u.telegram_id FROM users u WHERE u.id = ? AND (u.silent_mode IS NULL OR u.silent_mode != 1)",
+                            (lesson_data['teacher_id'],))
                         for row in cursor.fetchall():
                             try:
                                 bot.send_message(row['telegram_id'], message)
@@ -134,7 +135,7 @@ def check_schedule_changes():
 
                         # Отправляем студентам группы
                         cursor.execute(
-                            "SELECT u.telegram_id FROM users u JOIN students s ON u.id = s.user_id WHERE s.group_id = ?",
+                            "SELECT u.telegram_id FROM users u JOIN students s ON u.id = s.user_id WHERE s.group_id = ? AND (u.silent_mode IS NULL OR u.silent_mode != 1)",
                             (lesson_data['group_id'],))
                         for row in cursor.fetchall():
                             try:
@@ -143,8 +144,9 @@ def check_schedule_changes():
                                 print(f"Failed to send notification to {row['telegram_id']}: {e}")
 
                         # Отправляем преподавателю
-                        cursor.execute("SELECT u.telegram_id FROM users u WHERE u.id = ?",
-                                       (lesson_data['teacher_id'],))
+                        cursor.execute(
+                            "SELECT u.telegram_id FROM users u WHERE u.id = ? AND (u.silent_mode IS NULL OR u.silent_mode != 1)",
+                            (lesson_data['teacher_id'],))
                         for row in cursor.fetchall():
                             try:
                                 bot.send_message(row['telegram_id'], message)
@@ -167,7 +169,7 @@ def check_schedule_changes():
 
                         # Отправляем студентам группы
                         cursor.execute(
-                            "SELECT u.telegram_id FROM users u JOIN students s ON u.id = s.user_id WHERE s.group_id = ?",
+                            "SELECT u.telegram_id FROM users u JOIN students s ON u.id = s.user_id WHERE s.group_id = ? AND (u.silent_mode IS NULL OR u.silent_mode != 1)",
                             (lesson_data['group_id'],))
                         for row in cursor.fetchall():
                             try:
@@ -176,8 +178,9 @@ def check_schedule_changes():
                                 print(f"Failed to send notification to {row['telegram_id']}: {e}")
 
                         # Отправляем преподавателю
-                        cursor.execute("SELECT u.telegram_id FROM users u WHERE u.id = ?",
-                                       (lesson_data['teacher_id'],))
+                        cursor.execute(
+                            "SELECT u.telegram_id FROM users u WHERE u.id = ? AND (u.silent_mode IS NULL OR u.silent_mode != 1)",
+                            (lesson_data['teacher_id'],))
                         for row in cursor.fetchall():
                             try:
                                 bot.send_message(row['telegram_id'], message)
@@ -760,7 +763,6 @@ def toggle_silent_mode(message):
 
 # Запуск проверки изменений в расписании
 start_notifications()
-
 bot.infinity_polling()
 
 # При завершении работы бота
