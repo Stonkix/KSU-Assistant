@@ -1,6 +1,8 @@
 import telebot
 import sqlite3
 import os
+import threading
+import time
 from telebot import types
 from datetime import datetime, timedelta
 from Utils.Utils import verifyPassword
@@ -11,12 +13,203 @@ botToken = '7637461107:AAFH6C5oy9WZIuQhZfkmH6YUbVNseduRA90'
 bot = telebot.TeleBot(botToken)
 user_states = {}
 
+# Глобальные переменные для управления потоками уведомлений
+notification_thread = None
+stop_notifications = False
+
 
 def getDBConnection():
     conn = sqlite3.connect(DATABASE_PATH)
     conn.row_factory = sqlite3.Row
     return conn
 
+
+def check_schedule_changes():
+    """
+    Функция для проверки изменений в расписании и отправки уведомлений
+    """
+    conn = getDBConnection()
+    cursor = conn.cursor()
+
+    # Получаем текущее расписание (кешируем)
+    cursor.execute("""
+        SELECT l.id, l.group_id, l.teacher_id, l.weekday, l.pair_number, 
+               s.name as subject_name, r.room_number, r.building,
+               pt.start_time, pt.end_time
+        FROM lessons l
+        JOIN subjects s ON l.subject_id = s.id
+        JOIN rooms r ON l.room_id = r.id
+        JOIN pair_times pt ON l.pair_number = pt.pair_number
+    """)
+    current_schedule = {row['id']: dict(row) for row in cursor.fetchall()}
+
+    while not stop_notifications:
+        time.sleep(15)  # Проверяем 15 сек
+
+        try:
+            # Получаем новое состояние расписания
+            cursor.execute("""
+                SELECT l.id, l.group_id, l.teacher_id, l.weekday, l.pair_number, 
+                       s.name as subject_name, r.room_number, r.building,
+                       pt.start_time, pt.end_time
+                FROM lessons l
+                JOIN subjects s ON l.subject_id = s.id
+                JOIN rooms r ON l.room_id = r.id
+                JOIN pair_times pt ON l.pair_number = pt.pair_number
+            """)
+            new_schedule = {row['id']: dict(row) for row in cursor.fetchall()}
+
+            # Проверяем изменения
+            changed_lessons = []
+
+            # 1. Проверяем удаленные занятия
+            for lesson_id in set(current_schedule.keys()) - set(new_schedule.keys()):
+                changed_lessons.append(('deleted', current_schedule[lesson_id]))
+
+            # 2. Проверяем добавленные занятия
+            for lesson_id in set(new_schedule.keys()) - set(current_schedule.keys()):
+                changed_lessons.append(('added', new_schedule[lesson_id]))
+
+            # 3. Проверяем измененные занятия
+            for lesson_id in set(current_schedule.keys()) & set(new_schedule.keys()):
+                old_lesson = current_schedule[lesson_id]
+                new_lesson = new_schedule[lesson_id]
+
+                changes = []
+                if old_lesson['subject_name'] != new_lesson['subject_name']:
+                    changes.append(('subject', old_lesson['subject_name'], new_lesson['subject_name']))
+                if old_lesson['room_number'] != new_lesson['room_number'] or old_lesson['building'] != new_lesson[
+                    'building']:
+                    changes.append(('room', f"{old_lesson['room_number']} ({old_lesson['building']})",
+                                    f"{new_lesson['room_number']} ({new_lesson['building']})"))
+                if old_lesson['weekday'] != new_lesson['weekday']:
+                    days = ['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота', 'Воскресенье']
+                    changes.append(('weekday', days[old_lesson['weekday']], days[new_lesson['weekday']]))
+                if old_lesson['pair_number'] != new_lesson['pair_number']:
+                    changes.append(('time',
+                                    f"{old_lesson['start_time']}-{old_lesson['end_time']}",
+                                    f"{new_lesson['start_time']}-{new_lesson['end_time']}"))
+
+                if changes:
+                    changed_lessons.append(('modified', {'id': lesson_id, 'changes': changes,
+                                                         'group_id': new_lesson['group_id'],
+                                                         'teacher_id': new_lesson['teacher_id']}))
+
+            # Отправляем уведомления о изменениях
+            if changed_lessons:
+                for change_type, lesson_data in changed_lessons:
+                    if change_type == 'deleted':
+                        message = "❌ Занятие отменено:\n"
+                        message += f"📚 Предмет: {lesson_data['subject_name']}\n"
+                        message += f"📅 День: {['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота', 'Воскресенье'][lesson_data['weekday']]}\n"
+                        message += f"⏰ Время: {lesson_data['start_time']}-{lesson_data['end_time']}\n"
+                        message += f"📍 Аудитория: {lesson_data['room_number']} ({lesson_data['building']})"
+
+                        # Отправляем студентам группы
+                        cursor.execute(
+                            "SELECT u.telegram_id FROM users u JOIN students s ON u.id = s.user_id WHERE s.group_id = ?",
+                            (lesson_data['group_id'],))
+                        for row in cursor.fetchall():
+                            try:
+                                bot.send_message(row['telegram_id'], message)
+                            except Exception as e:
+                                print(f"Failed to send notification to {row['telegram_id']}: {e}")
+
+                        # Отправляем преподавателю
+                        cursor.execute("SELECT u.telegram_id FROM users u WHERE u.id = ?",
+                                       (lesson_data['teacher_id'],))
+                        for row in cursor.fetchall():
+                            try:
+                                bot.send_message(row['telegram_id'], message)
+                            except Exception as e:
+                                print(f"Failed to send notification to {row['telegram_id']}: {e}")
+
+                    elif change_type == 'added':
+                        message = "✅ Добавлено новое занятие:\n"
+                        message += f"📚 Предмет: {lesson_data['subject_name']}\n"
+                        message += f"📅 День: {['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота', 'Воскресенье'][lesson_data['weekday']]}\n"
+                        message += f"⏰ Время: {lesson_data['start_time']}-{lesson_data['end_time']}\n"
+                        message += f"📍 Аудитория: {lesson_data['room_number']} ({lesson_data['building']})"
+
+                        # Отправляем студентам группы
+                        cursor.execute(
+                            "SELECT u.telegram_id FROM users u JOIN students s ON u.id = s.user_id WHERE s.group_id = ?",
+                            (lesson_data['group_id'],))
+                        for row in cursor.fetchall():
+                            try:
+                                bot.send_message(row['telegram_id'], message)
+                            except Exception as e:
+                                print(f"Failed to send notification to {row['telegram_id']}: {e}")
+
+                        # Отправляем преподавателю
+                        cursor.execute("SELECT u.telegram_id FROM users u WHERE u.id = ?",
+                                       (lesson_data['teacher_id'],))
+                        for row in cursor.fetchall():
+                            try:
+                                bot.send_message(row['telegram_id'], message)
+                            except Exception as e:
+                                print(f"Failed to send notification to {row['telegram_id']}: {e}")
+
+                    elif change_type == 'modified':
+                        message = "✏️ Изменено занятие:\n"
+                        message += f"📚 Предмет: {lesson_data['changes'][0][1] if lesson_data['changes'][0][0] == 'subject' else [c[1] for c in lesson_data['changes'] if c[0] == 'subject'][0]}\n"
+
+                        for change in lesson_data['changes']:
+                            if change[0] == 'subject':
+                                message += f"🔹 Новое название предмета: {change[2]}\n"
+                            elif change[0] == 'room':
+                                message += f"🔹 Новая аудитория: {change[2]}\n"
+                            elif change[0] == 'weekday':
+                                message += f"🔹 Новый день: {change[2]}\n"
+                            elif change[0] == 'time':
+                                message += f"🔹 Новое время: {change[2]}\n"
+
+                        # Отправляем студентам группы
+                        cursor.execute(
+                            "SELECT u.telegram_id FROM users u JOIN students s ON u.id = s.user_id WHERE s.group_id = ?",
+                            (lesson_data['group_id'],))
+                        for row in cursor.fetchall():
+                            try:
+                                bot.send_message(row['telegram_id'], message)
+                            except Exception as e:
+                                print(f"Failed to send notification to {row['telegram_id']}: {e}")
+
+                        # Отправляем преподавателю
+                        cursor.execute("SELECT u.telegram_id FROM users u WHERE u.id = ?",
+                                       (lesson_data['teacher_id'],))
+                        for row in cursor.fetchall():
+                            try:
+                                bot.send_message(row['telegram_id'], message)
+                            except Exception as e:
+                                print(f"Failed to send notification to {row['telegram_id']}: {e}")
+
+            # Обновляем текущее расписание
+            current_schedule = new_schedule.copy()
+
+        except Exception as e:
+            print(f"Error checking schedule changes: {e}")
+
+    conn.close()
+
+
+def start_notifications():
+    """
+    Запускает поток для проверки изменений в расписании
+    """
+    global notification_thread, stop_notifications
+    stop_notifications = False
+    notification_thread = threading.Thread(target=check_schedule_changes)
+    notification_thread.start()
+
+
+def stop_notifications():
+    """
+    Останавливает поток уведомлений
+    """
+    global stop_notifications
+    stop_notifications = True
+    if notification_thread:
+        notification_thread.join()
 
 # Функция для отображения главного меню
 def send_main_menu(chat_id):
@@ -475,5 +668,10 @@ def toggle_silent_mode(message):
         bot.send_message(chat_id, "❌ Вы не авторизованы.")
         conn.close()
 
+# Запуск проверки изменений в расписании
+start_notifications()
 
 bot.infinity_polling()
+
+# При завершении работы бота
+stop_notifications()
