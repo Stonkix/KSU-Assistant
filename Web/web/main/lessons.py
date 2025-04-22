@@ -7,6 +7,7 @@ from urllib.parse import urlencode
 
 import sys
 from pathlib import Path
+from collections import defaultdict
 
 sys.path.append(str(Path(__file__).resolve().parents[3] / 'Utils'))
 
@@ -48,6 +49,48 @@ def generateHTMLTimeTable(group):
         7: 'Воскресение',
     }
 
+    dictWeekParity = {
+        'even': 'Числитель',
+        'odd': 'Знаменатель',
+    }
+
+    with connection.cursor() as cursor:
+        query = f'SELECT id, name FROM subjects'
+        cursor.execute(query)
+        subjects = cursor.fetchall()
+        dictSubjects = {}
+        for column in subjects:
+            dictSubjects[column[0]] = column[1]
+
+    with connection.cursor() as cursor:
+        query = f'SELECT * FROM rooms'
+        cursor.execute(query)
+        rooms = cursor.fetchall()
+        dictRooms = {}
+        for column in rooms:
+            dictRooms[column[0]] = (column[1], column[2]) # (room_number, building)
+
+    with connection.cursor() as cursor:
+        query = f'SELECT user_id, full_name FROM teachers'
+        cursor.execute(query)
+        teachers = cursor.fetchall()
+        dictTeachers = {}
+        for column in teachers:
+            dictTeachers[column[0]] = column[1]
+
+    with connection.cursor() as cursor:
+        query = f'SELECT * FROM lessons WHERE group_id = {group}'
+        print(query)
+        cursor.execute(query)
+        lessons = cursor.fetchall()
+        print(lessons)
+
+    dictLessons = defaultdict(list)
+    for row in lessons:
+        day = row[7] # weekday
+        pair = row[8] # pair_number
+        dictLessons[(day, pair)].append(row)
+
     with connection.cursor() as cursor:
         query = f'SELECT * FROM pair_times'
         print(query)
@@ -66,7 +109,19 @@ def generateHTMLTimeTable(group):
         table += '<tr>'
         table += f'<td>{start_time}-{end_time}</td>'
         for weekDay in dictWeekDays:
-            table += f'<td>-</td>'
+            if (weekDay, pair_number) in dictLessons:
+                table += '<td>'
+                for lesson in dictLessons.get((weekDay, pair_number), []):
+
+                    table += f"""<div>
+                                    {dictSubjects[lesson[1]]}<br>
+                                    {dictTeachers[lesson[2]]}<br>
+                                    {dictRooms[lesson[4]][0]} к.{dictRooms[lesson[4]][1]}<br>
+                                    {dictWeekParity[lesson[-1]]}<br>
+                                </div>"""
+                table += '</td>'
+            else:
+                table += f'<td>-</td>'
         table += '</tr>'
 
 
