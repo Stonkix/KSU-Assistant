@@ -113,17 +113,17 @@ def generateHTMLTimeTable(group):
                 table += '<td>'
                 for lesson in dictLessons.get((weekDay, pair_number), []):
 
-                    table += f"""<div class="filled-cell">
+                    table += f"""<div class="filled-cell" id="{lesson[0]}">
                                     {dictSubjects[lesson[1]]}<br>
                                     {dictTeachers[lesson[2]]}<br>
                                     {dictRooms[lesson[4]][0]} к.{dictRooms[lesson[4]][1]}<br>
                                     {dictWeekParity[lesson[-1]]}<br>
                                 </div>"""
-                    table += '<div class="empty-cell">+</div>'
+                    table += f'<div class="empty-cell" weekday="{weekDay}" pair-number="{pair_number}">+</div>'
                 table += '</td>'
             else:
                 table += '<td>'
-                table += '<div class="empty-cell">+</div>'
+                table += f'<div class="empty-cell" weekday="{weekDay}" pair-number="{pair_number}">+</div>'
                 table += '</td>'
         table += '</tr>'
 

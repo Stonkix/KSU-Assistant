@@ -26,3 +26,35 @@
 {% block tablelist %}
     {{ tablelistGen }}
 {% endblock%}
+
+{% block script %}
+    <script>
+        const rows = document.querySelectorAll('table tbody tr td div');
+
+        // Добавляем обработчик события "клик" на каждую строку
+        rows.forEach(row => {
+            row.addEventListener('click', function () {
+                const currentUrl = new URL(window.location.href);
+                // Получаем ID строки из атрибута data-id
+                const id = this.getAttribute('id');
+                const weekday = this.getAttribute('weekday');
+                const pairNumber = this.getAttribute('pair-number');
+                console.log(id);
+
+                if (id) {
+                    // Если есть ID — записываем его и удаляем другие параметры
+                    currentUrl.searchParams.set('id', id);
+                    currentUrl.searchParams.delete('weekday');
+                    currentUrl.searchParams.delete('pair-number');
+                } else if (weekday && pairNumber) {
+                    // Если нет ID, но есть weekday и pair-number — записываем их
+                    currentUrl.searchParams.set('weekday', weekday);
+                    currentUrl.searchParams.set('pair-number', pairNumber);
+                    currentUrl.searchParams.delete('id');
+                }
+
+                window.location.href = currentUrl.toString();
+            });
+        });
+    </script>
+{% endblock %}
