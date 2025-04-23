@@ -326,8 +326,8 @@ def generateFormForEditLesson(group, id):
             form += f'<option value="{weekDay}">{dictWeekDays[weekDay]}</option>'
     form += '</select></p>'
 
-    form += '<p><label for="pair_times">Пара</label>'
-    form += '<select name="pair_times">'
+    form += '<p><label for="pair_number">Пара</label>'
+    form += '<select name="pair_number">'
     for pair_time in pair_times:
         print(f'cfvghbjnkml,; {row[0][8]}, {pair_time[0]}')
         if row[0][8] == pair_time[0]:
@@ -369,6 +369,11 @@ def lessonsPage(request):
     if request.method == "POST":
         keys = []
         values = []
+
+        id = GETId(request)
+        weekDay = GETWeekDay(request)
+        pairNumber = GETPairNumber(request)
+
         for key, value in request.POST.items():
             if key == 'csrfmiddlewaretoken':
                 continue
@@ -379,10 +384,19 @@ def lessonsPage(request):
                 values.append(f"\'{value}\'")
             keys.append(key)
 
-        with connection.cursor() as cursor:
-            query = f'INSERT INTO lessons ({", ".join(keys)}) VALUES ({", ".join(values)})'
-            print(query)
-            cursor.execute(query)
+        if id:
+            with connection.cursor() as cursor:
+                lstValues = []
+                for i in range(len(keys)):
+                    lstValues.append(f'{keys[i]} = {values[i]}')
+                query = f'UPDATE lessons SET {", ".join(lstValues)}  WHERE id = {id}'
+                print(query)
+                cursor.execute(query)
+        elif weekDay and pairNumber:
+            with connection.cursor() as cursor:
+                query = f'INSERT INTO lessons ({", ".join(keys)}) VALUES ({", ".join(values)})'
+                print(query)
+                cursor.execute(query)
         group = GETGroup(request)
         query_params = urlencode({'groupId': group})
         return redirect(f"{request.path}?{query_params}")
