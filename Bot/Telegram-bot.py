@@ -297,7 +297,7 @@ def check_new_events():
                 current_events = {row['id']: dict(row) for row in cursor.fetchall()}
                 print(f"Текущие мероприятия: {len(current_events)}")
 
-                time.sleep(5)
+                time.sleep(2)
 
                 # Получаем новые мероприятия
                 cursor.execute("""
