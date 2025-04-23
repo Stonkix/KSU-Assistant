@@ -13,6 +13,20 @@ sys.path.append(str(Path(__file__).resolve().parents[3] / 'Utils'))
 
 import Utils
 
+dictWeekDays = {
+    1: 'Понедельник',
+    2: 'Вторник',
+    3: 'Среда',
+    4: 'Четверг',
+    5: 'Пятница',
+    6: 'Суббота',
+    7: 'Воскресение',
+}
+
+dictWeekParity = {
+    'even': 'Числитель',
+    'odd': 'Знаменатель',
+}
 
 def GETGroup(request):
     group = request.GET.get('groupId')
@@ -63,21 +77,6 @@ def generateGroupList():
 
 
 def generateHTMLTimeTable(group):
-    dictWeekDays = {
-        1: 'Понедельник',
-        2: 'Вторник',
-        3: 'Среда',
-        4: 'Четверг',
-        5: 'Пятница',
-        6: 'Суббота',
-        7: 'Воскресение',
-    }
-
-    dictWeekParity = {
-        'even': 'Числитель',
-        'odd': 'Знаменатель',
-    }
-
     with connection.cursor() as cursor:
         query = f'SELECT id, name FROM subjects'
         cursor.execute(query)
@@ -156,16 +155,7 @@ def generateHTMLTimeTable(group):
     return table
 
 
-def generateFormForNewLesson(group, weekDay, pairNumber):
-    dictColumns = {
-        'subject_id' : 'Предмет',
-        'teacher_id' : 'Преподаватель',
-        'room_id' : 'Кабинет',
-        'start_date' : 'Начало (ГГГГ-ММ-ДД)',
-        'end_date' : 'Конец (ГГГГ-ММ-ДД)',
-        'week_parity' : 'Числитель/Знаменатель'
-    }
-
+def getDataFromDB():
     with connection.cursor() as cursor:
         query = f"""
         SELECT *
@@ -189,6 +179,29 @@ def generateFormForNewLesson(group, weekDay, pairNumber):
         """
         cursor.execute(query)
         rooms = cursor.fetchall()
+
+    with connection.cursor() as cursor:
+        query = f"""
+        SELECT *
+        FROM pair_times
+        """
+        cursor.execute(query)
+        pair_times = cursor.fetchall()
+
+    return subjects, teachers, rooms, pair_times
+
+
+def generateFormForNewLesson(group, weekDay, pairNumber):
+    dictColumns = {
+        'subject_id' : 'Предмет',
+        'teacher_id' : 'Преподаватель',
+        'room_id' : 'Кабинет',
+        'start_date' : 'Начало (ГГГГ-ММ-ДД)',
+        'end_date' : 'Конец (ГГГГ-ММ-ДД)',
+        'week_parity' : 'Числитель/Знаменатель'
+    }
+
+    subjects, teachers, rooms, pair_times = getDataFromDB()
 
     form = ''
 
@@ -239,6 +252,104 @@ def generateFormForNewLesson(group, weekDay, pairNumber):
     return form
 
 
+def generateFormForEditLesson(group, id):
+    form = ''
+    with connection.cursor() as cursor:
+        # (cid, name, type, notnull, dflt_value, pk)
+        # query = f"""
+        # SELECT COLUMN_NAME, DATA_TYPE, CHARACTER_MAXIMUM_LENGTH
+        # FROM INFORMATION_SCHEMA.COLUMNS
+        # WHERE TABLE_NAME = '{table_name}'
+        # """
+
+        query = f"PRAGMA table_info(lessons);"
+        cursor.execute(query)
+        columns = cursor.fetchall()
+
+        query = f"""
+           SELECT *
+           FROM lessons
+           WHERE id = {id}
+           """
+        cursor.execute(query)
+        row = cursor.fetchall() # (id, subjects_id, teacher_id, group_id, room_id, start_date, end_date, weekday, pair_number, recurrence, week_parity)
+
+        print(f'columns: {row}')
+
+    subjects, teachers, rooms, pair_times = getDataFromDB()
+    print(subjects)
+
+    form += f'<input type=\"hidden\" name=\"id\" value=\"{id}\">'
+
+    form += '<p><label for="subject_id">Предмет</label>'
+    form += '<select name="subject_id">'
+    for subject in subjects:  # id, name
+        if row[0][1] == subject[0]:
+            form += f'<option value="{subject[0]}" selected>{subject[1]}</option>'
+        else:
+            form += f'<option value="{subject[0]}">{subject[1]}</option>'
+    form += '</select></p>'
+
+    form += '<p><label for="teacher_id">Преподаватель</label>'
+    form += '<select name="teacher_id">'
+    for teacher in teachers:  # id, full_name
+        if row[0][2] == teacher[0]:
+            form += f'<option value="{teacher[0]}" selected>{teacher[1]}</option>'
+        else:
+            form += f'<option value="{teacher[0]}">{teacher[1]}</option>'
+    form += '</select></p>'
+
+    form += f'<input type=\"hidden\" name=\"group_id\" value=\"{row[0][3]}\">'
+
+    form += '<p><label for="room_id">Кабинет</label>'
+    form += '<select name="room_id">'
+    for room in rooms:  # id, room_number, building
+        if row[0][4] == room[0]:
+            form += f'<option value="{room[0]}" selected>{room[1]} к.{room[2]}</option>'
+        else:
+            form += f'<option value="{room[0]}">{room[1]} к.{room[2]}</option>'
+    form += '</select></p>'
+
+    form += '<p><label for="start_date">Начало (ГГГГ-ММ-ДД)</label>'
+    form += f'<input name="start_date" value=\"{row[0][5]}\">'
+
+    form += '<p><label for="end_date">Конец (ГГГГ-ММ-ДД)</label>'
+    form += f'<input name="end_date" value=\"{row[0][6]}\">'
+
+    form += '<p><label for="weekday">День недели</label>'
+    form += '<select name="weekday">'
+
+    for weekDay in dictWeekDays:
+        if row[0][7] == weekDay:
+            form += f'<option value="{weekDay}" selected>{dictWeekDays[weekDay]}</option>'
+        else:
+            form += f'<option value="{weekDay}">{dictWeekDays[weekDay]}</option>'
+    form += '</select></p>'
+
+    form += '<p><label for="pair_times">Пара</label>'
+    form += '<select name="pair_times">'
+    for pair_time in pair_times:
+        print(f'cfvghbjnkml,; {row[0][8]}, {pair_time[0]}')
+        if row[0][8] == pair_time[0]:
+            form += f'<option value="{pair_time[0]}" selected>{pair_time[0]}</option>'
+        else:
+            form += f'<option value="{pair_time[0]}">{pair_time[0]}</option>'
+    form += '</select></p>'
+
+    form += f'<input type=\"hidden\" name=\"recurrence\" value=\"{row[0][9]}\">'
+
+    form += '<p><label for="week_parity">Числитель/Знаменатель</label>'
+    form += '<select name="week_parity">'
+    for weekParity in dictWeekParity:  # id, room_number, building
+        if row[0][10] == weekParity:
+            form += f'<option value="{weekParity}" selected>{dictWeekParity[weekParity]}</option>'
+        else:
+            form += f'<option value="{weekParity}">{dictWeekParity[weekParity]}</option>'
+    form += '</select></p>'
+    # week_parity
+    return form
+
+
 def lessonsPage(request):
     HTMLtimeTable = ''
     form = ''
@@ -251,7 +362,7 @@ def lessonsPage(request):
             pairNumber = GETPairNumber(request)
 
             if id:
-                pass
+                form = generateFormForEditLesson(group, id)
             elif weekDay and pairNumber:
                 form = generateFormForNewLesson(group, weekDay, pairNumber)
 
