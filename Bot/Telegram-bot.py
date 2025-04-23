@@ -177,6 +177,95 @@ def check_schedule_changes():
         conn.close()
 
 
+def check_upcoming_lessons():
+    """
+    Функция для проверки предстоящих пар и отправки уведомлений за 10 минут до начала
+    """
+    conn = getDBConnection()
+    cursor = conn.cursor()
+
+    try:
+        while not stop_notifications:
+            now = datetime.now()
+            current_time = now.time().strftime('%H:%M:%S')  # Преобразуем время в строку
+            current_weekday = now.isoweekday()  # 1-Понедельник, 7-Воскресенье
+
+            # Получаем текущее время + 10 минут
+            reminder_time = (now + timedelta(minutes=10)).time().strftime('%H:%M:%S')
+
+            # Получаем все пары, которые начинаются через 10 минут
+            cursor.execute("""
+                SELECT l.id, l.group_id, l.teacher_id, l.weekday, l.pair_number,
+                       s.name as subject_name, r.room_number, r.building,
+                       pt.start_time, pt.end_time
+                FROM lessons l
+                JOIN subjects s ON l.subject_id = s.id
+                JOIN rooms r ON l.room_id = r.id
+                JOIN pair_times pt ON l.pair_number = pt.pair_number
+                WHERE l.weekday = ? 
+                AND pt.start_time BETWEEN ? AND ?
+                AND date('now') BETWEEN date(l.start_date) AND date(l.end_date)
+            """, (current_weekday, current_time, reminder_time))
+
+            upcoming_lessons = cursor.fetchall()
+
+            for lesson in upcoming_lessons:
+                lesson = dict(lesson)
+                lesson_id = lesson['id']
+
+                # Проверяем, отправляли ли уже уведомление для этой пары
+                if lesson_id in notified_lessons:
+                    continue
+
+                # Получаем название группы
+                cursor.execute("SELECT name FROM academic_groups WHERE id = ?", (lesson['group_id'],))
+                group_name_row = cursor.fetchone()
+                group_name = group_name_row['name'] if group_name_row else f"Группа {lesson['group_id']}"
+
+                # Формируем сообщение
+                message = (
+                    f"🔔 Напоминание о предстоящей паре:\n"
+                    f"📚 Предмет: {lesson['subject_name']}\n"
+                    f"👥 Группа: {group_name}\n"
+                    f"🏫 Аудитория: {lesson['building']}, {lesson['room_number']}\n"
+                    f"⏰ Время: {lesson['start_time']} - {lesson['end_time']}\n"
+                    f"Пара начнётся через 10 минут!"
+                )
+
+                try:
+                    # Отправляем уведомление студентам
+                    cursor.execute(
+                        "SELECT u.telegram_id FROM users u JOIN students s ON u.id = s.user_id WHERE s.group_id = ? AND (u.silent_mode IS NULL OR u.silent_mode != 1)",
+                        (lesson['group_id'],))
+                    for row in cursor.fetchall():
+                        try:
+                            bot.send_message(row['telegram_id'], message)
+                        except Exception as e:
+                            print(f"Failed to send notification to student {row['telegram_id']}: {e}")
+
+                    # Отправляем уведомление преподавателю
+                    cursor.execute(
+                        "SELECT u.telegram_id FROM users u WHERE u.id = ? AND (u.silent_mode IS NULL OR u.silent_mode != 1)",
+                        (lesson['teacher_id'],))
+                    for row in cursor.fetchall():
+                        try:
+                            bot.send_message(row['telegram_id'], message)
+                        except Exception as e:
+                            print(f"Failed to send notification to teacher {row['telegram_id']}: {e}")
+
+                    # Добавляем ID урока в множество, чтобы больше не отправлять уведомление
+                    notified_lessons.add(lesson_id)
+
+                except Exception as e:
+                    print(f"Error sending upcoming lesson notification: {e}")
+
+            # Проверяем каждую минуту
+            time.sleep(60)
+
+    except Exception as e:
+        print(f"Error in upcoming lessons check: {e}")
+    finally:
+        conn.close()
 def start_notifications():
     """
     Запускает потоки для проверки изменений в расписании и предстоящих пар
@@ -192,10 +281,10 @@ def start_notifications():
     schedule_thread.start()
     notification_threads.append(schedule_thread)
 
-    # Создаем и запускаем поток для проверки предстоящих пар
-    # upcoming_thread = threading.Thread(target=check_upcoming_lessons)
-   # upcoming_thread.start()
-    #notification_threads.append(upcoming_thread)
+    #Создаем и запускаем поток для проверки предстоящих пар
+    upcoming_thread = threading.Thread(target=check_upcoming_lessons)
+    upcoming_thread.start()
+    notification_threads.append(upcoming_thread)
 
 
 def stop_notifications():
