@@ -266,6 +266,141 @@ def check_upcoming_lessons():
         print(f"Error in upcoming lessons check: {e}")
     finally:
         conn.close()
+
+
+def check_new_events():
+    """
+    Функция для проверки новых мероприятий и отправки уведомлений
+    """
+    conn = getDBConnection()
+    cursor = conn.cursor()
+    notified_events = set()
+
+    try:
+        # Проверяем существование таблицы events
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='events';")
+        if not cursor.fetchone():
+            print("Таблица 'events' не найдена в базе данных!")
+            return
+
+        while not stop_notifications:
+            try:
+                print(f"[{datetime.now()}] Проверка новых мероприятий...")
+
+                # Получаем текущие мероприятия
+                cursor.execute("""
+                    SELECT id, title, description, datetime, target_roles 
+                    FROM events 
+                    WHERE datetime(datetime) > datetime('now', 'localtime')
+                    ORDER BY datetime
+                """)
+                current_events = {row['id']: dict(row) for row in cursor.fetchall()}
+                print(f"Текущие мероприятия: {len(current_events)}")
+
+                time.sleep(5)
+
+                # Получаем новые мероприятия
+                cursor.execute("""
+                    SELECT id, title, description, datetime, target_roles 
+                    FROM events 
+                    WHERE datetime(datetime) > datetime('now', 'localtime')
+                    ORDER BY datetime
+                """)
+                new_events = {row['id']: dict(row) for row in cursor.fetchall()}
+                print(f"Новые мероприятия: {len(new_events)}")
+
+                # Определяем новые ID мероприятий
+                new_event_ids = set(new_events.keys()) - set(current_events.keys())
+                print(f"Найдено новых мероприятий: {len(new_event_ids)}")
+
+                for event_id in new_event_ids:
+                    if event_id in notified_events:
+                        continue
+
+                    event = new_events[event_id]
+                    target_roles = event.get('target_roles') or 'all'
+                    print(f"Обработка мероприятия ID {event_id} для {target_roles}")
+
+                    try:
+                        event_datetime = datetime.strptime(event['datetime'], '%Y-%m-%d %H:%M:%S')
+                        formatted_date = event_datetime.strftime('%d.%m.%Y %H:%M')
+                    except:
+                        formatted_date = event['datetime']
+
+                    message = (
+                        f"🎉 Новое мероприятие!\n"
+                        f"📌 {event['title']}\n"
+                        f"📅 Дата: {formatted_date}\n"
+                        f"📝 Описание: {event['description']}\n"
+                    )
+
+                    recipients = set()
+                    roles = target_roles.split()
+                    group_ids = [int(token) for token in roles if token.isdigit()]
+                    role_flags = set(role for role in roles if not role.isdigit())
+
+                    print(f"Разбор: roles={roles}, role_flags={role_flags}, group_ids={group_ids}")
+
+                    # Всем
+                    if 'all' in role_flags and not group_ids:
+                        cursor.execute("""
+                            SELECT telegram_id FROM users 
+                            WHERE telegram_id IS NOT NULL 
+                            AND (silent_mode IS NULL OR silent_mode != 1)
+                        """)
+                        recipients.update(row['telegram_id'] for row in cursor.fetchall())
+
+                    # Всем студентам
+                    if 'student' in role_flags and not group_ids:
+                        cursor.execute("""
+                            SELECT u.telegram_id FROM users u
+                            JOIN students s ON u.id = s.user_id
+                            WHERE u.telegram_id IS NOT NULL
+                            AND (u.silent_mode IS NULL OR u.silent_mode != 1)
+                        """)
+                        recipients.update(row['telegram_id'] for row in cursor.fetchall())
+
+                    # Всем преподавателям
+                    if 'teacher' in role_flags and not group_ids:
+                        cursor.execute("""
+                            SELECT u.telegram_id FROM users u
+                            JOIN teachers t ON u.id = t.user_id
+                            WHERE u.telegram_id IS NOT NULL
+                            AND (u.silent_mode IS NULL OR u.silent_mode != 1)
+                        """)
+                        recipients.update(row['telegram_id'] for row in cursor.fetchall())
+
+                    # Студентам из конкретных групп
+                    for group_id in group_ids:
+                        cursor.execute("""
+                            SELECT u.telegram_id FROM users u
+                            JOIN students s ON u.id = s.user_id
+                            WHERE s.group_id = ? 
+                            AND u.telegram_id IS NOT NULL
+                            AND (u.silent_mode IS NULL OR u.silent_mode != 1)
+                        """, (group_id,))
+                        recipients.update(row['telegram_id'] for row in cursor.fetchall())
+
+                    print(f"Отправка уведомлений для {len(recipients)} получателей")
+
+                    for telegram_id in recipients:
+                        try:
+                            bot.send_message(telegram_id, message)
+                            print(f"Уведомление отправлено {telegram_id}")
+                        except Exception as e:
+                            print(f"Ошибка отправки {telegram_id}: {e}")
+
+                    notified_events.add(event_id)
+
+            except Exception as e:
+                print(f"Ошибка в основном цикле проверки мероприятий: {e}")
+                time.sleep(10)
+
+    except Exception as e:
+        print(f"Критическая ошибка в check_new_events: {e}")
+    finally:
+        conn.close()
+
 def start_notifications():
     """
     Запускает потоки для проверки изменений в расписании и предстоящих пар
@@ -286,7 +421,10 @@ def start_notifications():
     upcoming_thread.start()
     notification_threads.append(upcoming_thread)
 
-
+    # Создаем и запускаем поток для проверки новых мероприятий
+    events_thread = threading.Thread(target=check_new_events)
+    events_thread.start()
+    notification_threads.append(events_thread)
 def stop_notifications():
     """
     Останавливает все потоки уведомлений
