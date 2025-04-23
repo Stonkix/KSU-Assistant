@@ -4,7 +4,7 @@ import os
 import threading
 import time
 from telebot import types
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from Utils.Utils import verifyPassword
 
 dbDir = "C:/Users/alexa/Desktop/KSU-Assistant-after-venv/Utils"
@@ -17,13 +17,27 @@ user_states = {}
 notification_thread = None
 stop_notifications = False
 
+def adapt_date_iso(val):
+    return val.isoformat()
+
+sqlite3.register_adapter(date, adapt_date_iso)
 
 def getDBConnection():
     conn = sqlite3.connect(DATABASE_PATH)
     conn.row_factory = sqlite3.Row
     return conn
 
-
+WEEKDAYS = ['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота', 'Воскресенье']
+WEEKDAYS_RU = {
+    1: 'Понедельник',
+    2: 'Вторник',
+    3: 'Среда',
+    4: 'Четверг',
+    5: 'Пятница',
+    6: 'Суббота',
+    7: 'Воскресенье'
+}
+notified_lessons = set()
 def check_schedule_changes():
     """
     Функция для проверки изменений в расписании и отправки уведомлений
@@ -43,10 +57,10 @@ def check_schedule_changes():
     """)
     current_schedule = {row['id']: dict(row) for row in cursor.fetchall()}
 
-    while not stop_notifications:
-        time.sleep(5)  # Проверяем 15 сек
+    try:
+        while not stop_notifications:
+            time.sleep(2)
 
-        try:
             # Получаем новое состояние расписания
             cursor.execute("""
                 SELECT l.id, l.group_id, l.teacher_id, l.weekday, l.pair_number, 
@@ -63,15 +77,15 @@ def check_schedule_changes():
             # Проверяем изменения
             changed_lessons = []
 
-            # 1. Проверяем удаленные занятия
+            # 1. Удаленные
             for lesson_id in set(current_schedule.keys()) - set(new_schedule.keys()):
                 changed_lessons.append(('deleted', current_schedule[lesson_id]))
 
-            # 2. Проверяем добавленные занятия
+            # 2. Добавленные
             for lesson_id in set(new_schedule.keys()) - set(current_schedule.keys()):
                 changed_lessons.append(('added', new_schedule[lesson_id]))
 
-            # 3. Проверяем измененные занятия
+            # 3. Измененные
             for lesson_id in set(current_schedule.keys()) & set(new_schedule.keys()):
                 old_lesson = current_schedule[lesson_id]
                 new_lesson = new_schedule[lesson_id]
@@ -79,34 +93,60 @@ def check_schedule_changes():
                 changes = []
                 if old_lesson['subject_name'] != new_lesson['subject_name']:
                     changes.append(('subject', old_lesson['subject_name'], new_lesson['subject_name']))
-                if old_lesson['room_number'] != new_lesson['room_number'] or old_lesson['building'] != new_lesson[
-                    'building']:
-                    changes.append(('room', f"{old_lesson['room_number']} ({old_lesson['building']})",
-                                    f"{new_lesson['room_number']} ({new_lesson['building']})"))
+                if old_lesson['room_number'] != new_lesson['room_number'] or old_lesson['building'] != new_lesson['building']:
+                    changes.append(('room', f"{old_lesson['room_number']} ({old_lesson['building']})", f"{new_lesson['room_number']} ({new_lesson['building']})"))
                 if old_lesson['weekday'] != new_lesson['weekday']:
-                    days = ['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота', 'Воскресенье']
-                    changes.append(('weekday', days[old_lesson['weekday']], days[new_lesson['weekday']]))
+                    changes.append(('weekday', old_lesson['weekday'], new_lesson['weekday']))
                 if old_lesson['pair_number'] != new_lesson['pair_number']:
-                    changes.append(('time',
-                                    f"{old_lesson['start_time']}-{old_lesson['end_time']}",
-                                    f"{new_lesson['start_time']}-{new_lesson['end_time']}"))
+                    changes.append(('time', f"{old_lesson['start_time']}-{old_lesson['end_time']}", f"{new_lesson['start_time']}-{new_lesson['end_time']}"))
 
                 if changes:
-                    changed_lessons.append(('modified', {'id': lesson_id, 'changes': changes,
-                                                         'group_id': new_lesson['group_id'],
-                                                         'teacher_id': new_lesson['teacher_id']}))
+                    changed_lessons.append(('modified', {
+                        'id': lesson_id,
+                        'changes': changes,
+                        'group_id': new_lesson['group_id'],
+                        'teacher_id': new_lesson['teacher_id'],
+                        'weekday': new_lesson['weekday'],
+                        'pair_number': new_lesson['pair_number']
+                    }))
 
-            # Отправляем уведомления о изменениях
-            if changed_lessons:
-                for change_type, lesson_data in changed_lessons:
-                    if change_type == 'deleted':
-                        message = "❌ Занятие отменено:\n"
-                        message += f"📚 Предмет: {lesson_data['subject_name']}\n"
-                        message += f"📅 День: {['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота', 'Воскресенье'][lesson_data['weekday']]}\n"
-                        message += f"⏰ Время: {lesson_data['start_time']}-{lesson_data['end_time']}\n"
-                        message += f"📍 Аудитория: {lesson_data['room_number']} ({lesson_data['building']})"
+            # Обработка изменений
+            for change_type, lesson_data in changed_lessons:
+                message = ""
 
-                        # Отправляем студентам группы
+                # Проверяем, отправляли ли уже уведомление для этого урока
+                if lesson_data['id'] in notified_lessons:
+                    continue  # Если уведомление уже отправлялось, пропускаем
+
+                # Запрашиваем название группы из таблицы academic_groups
+                cursor.execute("SELECT name FROM academic_groups WHERE id = ?", (lesson_data['group_id'],))
+                group_name_row = cursor.fetchone()
+                group_name = group_name_row['name'] if group_name_row else f"Группа {lesson_data['group_id']}"
+
+                if change_type == 'modified':
+                    change_descriptions = []
+                    for field, old_val, new_val in lesson_data['changes']:
+                        if field == 'subject':
+                            change_descriptions.append(f"📚 Предмет: \"{old_val}\" → \"{new_val}\"")
+                        elif field == 'room':
+                            change_descriptions.append(f"🏫 Аудитория: \"{old_val}\" → \"{new_val}\"")
+                        elif field == 'weekday':
+                            old_weekday_name = WEEKDAYS_RU.get(int(old_val) - 1, old_val)
+                            new_weekday_name = WEEKDAYS_RU.get(int(new_val) - 1, new_val)
+                            change_descriptions.append(f"📅 День недели: \"{old_weekday_name}\" → \"{new_weekday_name}\"")
+                        elif field == 'time':
+                            change_descriptions.append(f"⏰ Время: \"{old_val}\" → \"{new_val}\"")
+
+                    if change_descriptions:
+                        message = (
+                            f"✏ Изменения в паре:\n"
+                            f"📍 Пара #{lesson_data['pair_number']} для группы {group_name}:\n"
+                            + "\n".join(change_descriptions)
+                        )
+
+                if message:
+                    try:
+                        # Отправляем уведомление студентам
                         cursor.execute(
                             "SELECT u.telegram_id FROM users u JOIN students s ON u.id = s.user_id WHERE s.group_id = ? AND (u.silent_mode IS NULL OR u.silent_mode != 1)",
                             (lesson_data['group_id'],))
@@ -116,7 +156,7 @@ def check_schedule_changes():
                             except Exception as e:
                                 print(f"Failed to send notification to {row['telegram_id']}: {e}")
 
-                        # Отправляем преподавателю
+                        # Отправляем уведомление преподавателю
                         cursor.execute(
                             "SELECT u.telegram_id FROM users u WHERE u.id = ? AND (u.silent_mode IS NULL OR u.silent_mode != 1)",
                             (lesson_data['teacher_id'],))
@@ -126,94 +166,50 @@ def check_schedule_changes():
                             except Exception as e:
                                 print(f"Failed to send notification to {row['telegram_id']}: {e}")
 
-                    elif change_type == 'added':
-                        message = "✅ Добавлено новое занятие:\n"
-                        message += f"📚 Предмет: {lesson_data['subject_name']}\n"
-                        message += f"📅 День: {['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота', 'Воскресенье'][lesson_data['weekday']]}\n"
-                        message += f"⏰ Время: {lesson_data['start_time']}-{lesson_data['end_time']}\n"
-                        message += f"📍 Аудитория: {lesson_data['room_number']} ({lesson_data['building']})"
+                        # Добавляем ID урока в множество, чтобы больше не отправлять уведомление для этого урока
+                        notified_lessons.add(lesson_data['id'])
 
-                        # Отправляем студентам группы
-                        cursor.execute(
-                            "SELECT u.telegram_id FROM users u JOIN students s ON u.id = s.user_id WHERE s.group_id = ? AND (u.silent_mode IS NULL OR u.silent_mode != 1)",
-                            (lesson_data['group_id'],))
-                        for row in cursor.fetchall():
-                            try:
-                                bot.send_message(row['telegram_id'], message)
-                            except Exception as e:
-                                print(f"Failed to send notification to {row['telegram_id']}: {e}")
-
-                        # Отправляем преподавателю
-                        cursor.execute(
-                            "SELECT u.telegram_id FROM users u WHERE u.id = ? AND (u.silent_mode IS NULL OR u.silent_mode != 1)",
-                            (lesson_data['teacher_id'],))
-                        for row in cursor.fetchall():
-                            try:
-                                bot.send_message(row['telegram_id'], message)
-                            except Exception as e:
-                                print(f"Failed to send notification to {row['telegram_id']}: {e}")
-
-                    elif change_type == 'modified':
-                        message = "✏️ Изменено занятие:\n"
-                        message += f"📚 Предмет: {lesson_data['changes'][0][1] if lesson_data['changes'][0][0] == 'subject' else [c[1] for c in lesson_data['changes'] if c[0] == 'subject'][0]}\n"
-
-                        for change in lesson_data['changes']:
-                            if change[0] == 'subject':
-                                message += f"🔹 Новое название предмета: {change[2]}\n"
-                            elif change[0] == 'room':
-                                message += f"🔹 Новая аудитория: {change[2]}\n"
-                            elif change[0] == 'weekday':
-                                message += f"🔹 Новый день: {change[2]}\n"
-                            elif change[0] == 'time':
-                                message += f"🔹 Новое время: {change[2]}\n"
-
-                        # Отправляем студентам группы
-                        cursor.execute(
-                            "SELECT u.telegram_id FROM users u JOIN students s ON u.id = s.user_id WHERE s.group_id = ? AND (u.silent_mode IS NULL OR u.silent_mode != 1)",
-                            (lesson_data['group_id'],))
-                        for row in cursor.fetchall():
-                            try:
-                                bot.send_message(row['telegram_id'], message)
-                            except Exception as e:
-                                print(f"Failed to send notification to {row['telegram_id']}: {e}")
-
-                        # Отправляем преподавателю
-                        cursor.execute(
-                            "SELECT u.telegram_id FROM users u WHERE u.id = ? AND (u.silent_mode IS NULL OR u.silent_mode != 1)",
-                            (lesson_data['teacher_id'],))
-                        for row in cursor.fetchall():
-                            try:
-                                bot.send_message(row['telegram_id'], message)
-                            except Exception as e:
-                                print(f"Failed to send notification to {row['telegram_id']}: {e}")
-
-            # Обновляем текущее расписание
-            current_schedule = new_schedule.copy()
-
-        except Exception as e:
-            print(f"Error checking schedule changes: {e}")
-
-    conn.close()
+                    except Exception as e:
+                        print(f"Error sending notification: {e}")
+    except Exception as e:
+        print(f"Error in checking schedule changes: {e}")
+    finally:
+        conn.close()
 
 
 def start_notifications():
     """
-    Запускает поток для проверки изменений в расписании
+    Запускает потоки для проверки изменений в расписании и предстоящих пар
     """
-    global notification_thread, stop_notifications
+    global notification_threads, stop_notifications
     stop_notifications = False
-    notification_thread = threading.Thread(target=check_schedule_changes)
-    notification_thread.start()
+
+    # Создаем список для хранения потоков
+    notification_threads = []
+
+    # Создаем и запускаем поток для проверки изменений расписания
+    schedule_thread = threading.Thread(target=check_schedule_changes)
+    schedule_thread.start()
+    notification_threads.append(schedule_thread)
+
+    # Создаем и запускаем поток для проверки предстоящих пар
+    # upcoming_thread = threading.Thread(target=check_upcoming_lessons)
+   # upcoming_thread.start()
+    #notification_threads.append(upcoming_thread)
 
 
 def stop_notifications():
     """
-    Останавливает поток уведомлений
+    Останавливает все потоки уведомлений
     """
     global stop_notifications
     stop_notifications = True
-    if notification_thread:
-        notification_thread.join()
+
+    # Дожидаемся завершения всех потоков
+    if 'notification_threads' in globals():
+        for thread in notification_threads:
+            if thread.is_alive():
+                thread.join()
 
 
 # Функция для отображения главного меню
@@ -387,7 +383,8 @@ def fetch_student_schedule(user_id, mode='today'):
 
     group_id = row["group_id"]
     today = datetime.today()
-    weekday = today.weekday()
+    # FIXED: Добавляем +1 для соответствия формату базы данных (1-7)
+    weekday = today.weekday() + 1
     today_str = today.strftime('%Y-%m-%d')
 
     if mode == 'today':
@@ -427,14 +424,12 @@ def fetch_student_schedule(user_id, mode='today'):
 
     if not lessons:
         return "📝 Расписание не найдено."
-
-    days = ['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота', 'Воскресенье']
     msg = ""
     last_day = -1
     for lesson in lessons:
         day = lesson['weekday']
         if mode == 'week' and day != last_day:
-            msg += f"\n📅 <b>{days[day]}</b>\n"
+            msg += f"\n📅 <b>{WEEKDAYS[day - 1]}</b>\n"  # -1 потому что в базе 1-7
             last_day = day
         msg += f"⏰ {lesson['start_time']}–{lesson['end_time']}: <b>{lesson['subject_name']}</b>\n"
         msg += f"   👨‍🏫 {lesson['teacher_name']}\n"
@@ -447,7 +442,7 @@ def fetch_teacher_schedule(user_id, mode='today'):
     cursor = conn.cursor()
 
     today = datetime.today()
-    weekday = today.weekday()
+    weekday = today.weekday() + 1
     today_str = today.strftime('%Y-%m-%d')
 
     if mode == 'today':
@@ -487,14 +482,12 @@ def fetch_teacher_schedule(user_id, mode='today'):
 
     if not lessons:
         return "📝 Расписание не найдено."
-
-    days = ['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота', 'Воскресенье']
     msg = ""
     last_day = -1
     for lesson in lessons:
         day = lesson['weekday']
         if mode == 'week' and day != last_day:
-            msg += f"\n📅 <b>{days[day]}</b>\n"
+            msg += f"\n📅 <b>{WEEKDAYS[day - 1]}</b>\n"  # -1 потому что в базе 1-7
             last_day = day
         msg += f"⏰ {lesson['start_time']}–{lesson['end_time']}: <b>{lesson['subject_name']}</b>\n"
         msg += f"   👥 Группа: {lesson['group_name']}\n"
@@ -764,6 +757,5 @@ def toggle_silent_mode(message):
 # Запуск проверки изменений в расписании
 start_notifications()
 bot.infinity_polling()
-
 # При завершении работы бота
 stop_notifications()
