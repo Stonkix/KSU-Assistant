@@ -1,0 +1,60 @@
+{% extends 'main/layout.html' %}
+
+{% block title %} Оповещение {% endblock %}
+
+{% block content %}
+    <p>Оповещение для сотрудников и студентов </p>
+{% endblock %}
+
+{% block form %}
+    {% if form %}
+        <form class="form-container" method="post">
+            <p class="form-header">Оповещение</p>
+            <div class="form-fields">
+                {% csrf_token %}
+                {{ form }}
+            </div>
+            <button class="form-button" type="submit">Отправить</button>
+        </form>
+    {% endif %}
+{% endblock %}
+
+{% block slidebar-title %}
+    Группы
+{% endblock %}
+
+{% block tablelist %}
+    {{ tablelistGen }}
+{% endblock%}
+
+{% block script %}
+    <script>
+        const rows = document.querySelectorAll('table tbody tr td div');
+
+        // Добавляем обработчик события "клик" на каждую строку
+        rows.forEach(row => {
+            row.addEventListener('click', function () {
+                const currentUrl = new URL(window.location.href);
+                // Получаем ID строки из атрибута data-id
+                const id = this.getAttribute('id');
+                const weekday = this.getAttribute('weekday');
+                const pairNumber = this.getAttribute('pair-number');
+                console.log(id);
+
+                if (id) {
+                    // Если есть ID — записываем его и удаляем другие параметры
+                    currentUrl.searchParams.set('id', id);
+                    currentUrl.searchParams.delete('weekday');
+                    currentUrl.searchParams.delete('pair-number');
+                } else if (weekday && pairNumber) {
+                    // Если нет ID, но есть weekday и pair-number — записываем их
+                    currentUrl.searchParams.set('weekday', weekday);
+                    currentUrl.searchParams.set('pair-number', pairNumber);
+                    currentUrl.searchParams.delete('id');
+                }
+
+                window.location.href = currentUrl.toString();
+            });
+        });
+    </script>
+{% endblock %}

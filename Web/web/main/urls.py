@@ -2,6 +2,7 @@ from django.contrib import admin
 from django.urls import include, path
 from . import views
 from . import lessons
+from . import broadcast
 
 urlpatterns = [
     path('', views.index),
@@ -12,4 +13,5 @@ urlpatterns = [
     path('delete', views.deletePage),
     path('test', views.testPage),
     path('lessons', lessons.lessonsPage),
+    path('broadcast', broadcast.broadcastPage),
 ]
